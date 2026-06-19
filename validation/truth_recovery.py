@@ -25,7 +25,7 @@ from scipy.spatial import cKDTree
 from Corrfunc.mocks.DDtheta_mocks import DDtheta_mocks
 from echoes.surveys.boss import load_boss
 from echoes.photoz import PhotoZKNN, photoz_features
-from echoes.observed import _radec_to_nhat
+from echoes.geometry import _radec_to_nhat
 from echoes.completion import complete_catalog_photoz, measure_close_pair_dz
 from echoes.clustering import wp_rp
 from echoes.randoms import make_random_from_selection_function
@@ -60,6 +60,10 @@ def main():
     p.add_argument("--patchy", default=None, help="Patchy mock .dat as truth (else real BOSS)")
     p.add_argument("--patchy-randoms", default="data/boss/mocks/Patchy-Mocks-Randoms-DR12SGC-COMPSAM_V6C_x10.dat")
     p.add_argument("--out", default="output/mock_truth_recovery.png")
+    p.add_argument("--z-mode", default="field",
+                   choices=["field", "knn2d", "graphgp", "nn", "photoz"],
+                   help="redshift-completion engine (default 'field'; 'knn2d' is the "
+                        "experimental 2D-kNN engine)")
     args = p.parse_args()
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
 
@@ -101,7 +105,17 @@ def main():
     one = np.ones(len(rar))
 
     # ---- completion ensemble ----
-    cats = [complete_catalog_photoz(obs, tg, pz, seed=s, dz_pool=dz) for s in range(args.n_real)]
+    ckw = {}
+    if args.z_mode == "knn2d":
+        # build the experimental 2D-kNN field once (RD window from the survey
+        # footprint; the mock-observed subset shares it) and reuse across seeds.
+        from echoes.knn2d_field import build_knn2d_field
+        ckw["knn2d_field"] = build_knn2d_field(
+            obs, seed=0, verbose=True, sel_map=cat.sel_map, nside=cat.nside)
+    cats = [complete_catalog_photoz(obs, tg, pz, seed=s, dz_pool=dz,
+                                    z_mode=args.z_mode, **ckw)
+            for s in range(args.n_real)]
+    print(f"[truth-recovery] z_mode={args.z_mode}, n_real={args.n_real}")
 
     # ---- w(theta): truth / observed / completed ensemble ----
     tb = np.logspace(np.log10(0.02), np.log10(2.5), 13); tc = np.sqrt(tb[1:]*tb[:-1])

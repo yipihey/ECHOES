@@ -152,7 +152,7 @@ def main():
     rar_o, decr_o, zr_o = rar_full[ro], decr_full[ro], zr_full[ro]
     if args.mangle and os.path.exists(args.mangle):
         from scipy.spatial import cKDTree
-        from echoes.observed import _radec_to_nhat
+        from echoes.geometry import _radec_to_nhat
         md = np.load(args.mangle).astype(float)                 # uniform over the mangle GEOMETRY mask
         # the geometry mask is ~40% larger than the LSS clustering footprint; clip the
         # uniform points to the LSS footprint = within `clip_deg` of a survey random

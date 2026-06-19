@@ -346,6 +346,8 @@ def complete_catalog_photoz(
     z_mode: str = "field",
     gp_field=None,
     gp_kwargs=None,
+    knn2d_field=None,
+    knn2d_kwargs=None,
     verbose: bool = False,
 ):
     """Equal-weight completion using REAL imaging positions + photo-z redshifts.
@@ -390,6 +392,13 @@ def complete_catalog_photoz(
       for ensembles). ``gp_kwargs`` (dict) overrides the build (nside, n_z_bins,
       r_edges, …). The fiducial cosmology in the GP prior is a gauge/unit choice
       (validated cosmology-invariant to <0.1%), so this stays data-driven.
+    - ``'knn2d'`` (experimental): the **2D angular kNN** local density (Yuan,
+      Abel & Wechsler 2024) — the per-sightline DD neighbour profile normalised
+      by the per-redshift RD window expectation, ``(1+δ)(n̂,z)=DD/RD`` — in place
+      of the KNN-KDE / GP density. Pure (θ,z) observables, cosmology-free, and
+      self-closing. Pass a precomputed ``knn2d_field`` (a ``KNN2DFieldResult``
+      from :func:`knn2d_field.build_knn2d_field`) to amortise the RD measurement
+      across an ensemble; ``knn2d_kwargs`` (dict) overrides the build.
     - ``'nn'``: nearest-neighbour host z (+ close-pair Δz for collisions). Sharp.
     - ``'photoz'``: per-object p(z|colours) only (LOS-smeared).
     """
@@ -481,6 +490,22 @@ def complete_catalog_photoz(
             draw_index = seed % gp_field.n_samples
         z_miss, zhost_fallback = _graphgp_zmiss(targets, photoz, dz_pool, gp_field, draw_index,
                                                 z_o, z_host, miss_kind, rng)
+    elif z_mode == "knn2d":
+        # EXPERIMENTAL: the 2D angular kNN local density (Yuan, Abel & Wechsler
+        # 2024) along each missing sightline — the per-sightline DD neighbour
+        # profile normalised by the per-redshift RD window expectation,
+        #   (1+δ)(n̂,z) = DD(n̂;θ,z) / RD(θ,z),
+        # replacing the KNN-KDE 'field' / GP 'graphgp' local density in the same
+        # posterior product. Pure (θ,z) observables; cosmology-free; self-closing
+        # (re-measure the kNN-CDF on the output). Pass a precomputed knn2d_field
+        # (a KNN2DFieldResult) to amortise the RD measurement across an ensemble;
+        # else build one from catalog. knn2d_kwargs overrides the build.
+        from .knn2d_field import build_knn2d_field, _knn2d_zmiss
+        if knn2d_field is None:
+            knn2d_field = build_knn2d_field(catalog, seed=seed, **(knn2d_kwargs or {}))
+        draw_index = seed % max(1, getattr(knn2d_field, "n_samples", 1))
+        z_miss, zhost_fallback = _knn2d_zmiss(targets, photoz, dz_pool, knn2d_field,
+                                              draw_index, z_o, z_host, miss_kind, rng)
     else:
         # 'photoz': per-object redshift from p(z|colours) × close-pair prior (more
         # realistic per-object z, but LOS-smeared — degrades 3-D redshift-space clustering).

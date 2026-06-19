@@ -10,6 +10,9 @@ MODULES = [
     "echoes.mock_systematics", "echoes.cli",
     "echoes.surveys.base", "echoes.surveys.sdss_io", "echoes.surveys.boss",
     "echoes.surveys.boss_targets",
+    # experimental kNN2D engine (Yuan-Abel-Wechsler) — needs numba + healpy
+    "echoes.knn", "echoes.knn.cdf", "echoes.knn.derived", "echoes.knn.analytic_rr",
+    "echoes.knn2d_field",
 ]
 
 @pytest.mark.parametrize("mod", MODULES)

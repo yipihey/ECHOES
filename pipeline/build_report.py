@@ -1107,7 +1107,7 @@ def compute_mask():
     import healpy as hp
     from Corrfunc.mocks.DDtheta_mocks import DDtheta_mocks
     from echoes.surveys.boss import load_boss
-    from echoes.observed import _radec_to_nhat
+    from echoes.geometry import _radec_to_nhat
     from echoes.inpaint import fine_completeness_map, find_interior_holes, inpaint_holes
 
     def wtheta(ra_d, dec_d, ra_r, dec_r, tb):
@@ -1150,7 +1150,7 @@ def compute_mask():
 
     # ---- inpaint GALLERY: holes shown with their CAUSE (bright stars / bad fields) ----
     # work in wrapped RA so holes near RA=0/360 are contiguous; store per-hole.
-    from echoes.observed import _radec_to_nhat
+    from echoes.geometry import _radec_to_nhat
     from scipy.spatial import cKDTree
     wrap = lambda r: ((np.asarray(r, float) + 180.0) % 360.0) - 180.0
     hid_all = real["hole_id"].astype(int)
