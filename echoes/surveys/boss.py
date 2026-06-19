@@ -6,7 +6,7 @@ Implements the exact LOWZ-SGC and CMASS-SGC selection used in:
         LOWZ-South   0.20 < z < 0.37   RA < 28° or RA > 335°, Dec > −6°
         CMASS-South  0.45 < z < 0.60   same RA / Dec boundary
 
-Data files from SDSS DR12 (download via ``demos/fetch_boss.py``):
+Data files from SDSS DR12 (download via ``data/fetch_boss.py``):
 
     galaxy_DR12v5_LOWZ_South.fits.gz
     galaxy_DR12v5_CMASS_South.fits.gz

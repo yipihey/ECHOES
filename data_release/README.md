@@ -8,7 +8,7 @@
 | `SHA256SUMS` | integrity manifest |
 
 ```bash
-python draw_samples.py --seed 0 --out catalog_0.fits
+python draw_samples.py --seed 0 --out catalog_0.npz
 ```
 ```python
 from draw_samples import load_package, draw
@@ -16,5 +16,7 @@ pkg = load_package("cmass_south_posterior.npz")
 cat = draw(pkg, seed=0)        # ra, dec, z, prov, N
 ```
 Columns: `RA`, `DEC` [deg]; `Z` (redshift); `PROV` (0 observed, 1 collided,
-2 zfail, 3 systot-analog, 4 zhost). Equal-weight and cosmology-free. Also archived
-on Zenodo (DOI `10.5281/zenodo.XXXXXXX`).
+2 zfail, 3 systot-analog, 4 zhost). Equal-weight and cosmology-free.
+
+Zenodo DOI status: pending. Until a DOI is minted, cite the repository commit
+and verify products with `SHA256SUMS`.

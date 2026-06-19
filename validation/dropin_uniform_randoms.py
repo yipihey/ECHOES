@@ -36,9 +36,7 @@ w_c = w_systot*(w_cp+w_noz-1), the survey's own (completeness-traced, holey)
 randoms. A fiducial (Planck18) cosmology enters ONLY to turn z into distance for
 wp/xi; the catalogs stay cosmology-free.
 
-    PYTHONPATH=/home/tabel/Projects/graphgp:/home/tabel/Projects/graphGP-cosmology \
-    OMP_NUM_THREADS=32 JAX_PLATFORMS=cpu ~/.venv/k3d/bin/python3 \
-        demos/validate_dropin_uniform_randoms.py
+    OMP_NUM_THREADS=32 JAX_PLATFORMS=cpu python validation/dropin_uniform_randoms.py
 """
 import argparse, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

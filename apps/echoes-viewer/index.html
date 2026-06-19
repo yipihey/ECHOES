@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ECHOES Visualizer — BOSS DR12 CMASS-South</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css?v=renderfix-20260619">
+</head>
+<body>
+  <main id="app" class="app-shell">
+    <canvas id="scene" aria-label="ECHOES 3D galaxy catalog visualizer"></canvas>
+    <div id="labels" class="axis-labels" aria-hidden="true"></div>
+    <div id="loadingOverlay" class="loading-overlay" role="status" aria-live="polite">
+      <div class="loading-card">
+        <div class="loading-title">Loading ECHOES Catalog</div>
+        <div id="loadingText" class="loading-text">Fetching manifest...</div>
+        <div class="loading-bar"><span></span></div>
+      </div>
+    </div>
+
+    <section id="unsupported" class="unsupported" hidden>
+      <h1>WebGPU Required</h1>
+      <p>This viewer needs a browser with WebGPU enabled. Recent Chrome, Edge, and Safari Technology Preview builds work best.</p>
+    </section>
+
+    <header id="topbar" class="topbar">
+      <div class="brand">
+        <a href="../index.html" class="brand-mark">ECHOES</a>
+        <span>BOSS DR12 CMASS-South</span>
+      </div>
+      <div class="top-actions">
+        <button id="blinkBtn" class="primary" type="button" title="Blink observed/completed catalog">Blink</button>
+        <button id="shotBtn" type="button" title="Download a PNG screenshot">Screenshot</button>
+        <button id="fullBtn" type="button" title="Enter fullscreen">Fullscreen</button>
+        <button id="hideBtn" type="button" title="Hide or show all controls">Hide UI</button>
+      </div>
+    </header>
+
+    <aside id="panel" class="panel" aria-label="Viewer controls">
+      <div class="panel-section">
+        <h2>Catalog</h2>
+        <label>Method
+          <select id="methodSelect"></select>
+        </label>
+        <label>Realization
+          <select id="realizationSelect"></select>
+        </label>
+        <div class="segmented" aria-label="Layer visibility">
+          <label><input id="showObserved" type="checkbox" checked> Observed</label>
+          <label><input id="showEchoes" type="checkbox" checked> ECHOES</label>
+        </div>
+        <label>Blink cadence
+          <input id="blinkRate" type="range" min="250" max="2500" step="50" value="850">
+        </label>
+      </div>
+
+      <div class="panel-section">
+        <h2>View</h2>
+        <label>Renderer
+          <select id="rendererSelect">
+            <option value="auto">Auto</option>
+            <option value="webgpu">WebGPU</option>
+            <option value="canvas2d">Canvas fallback</option>
+          </select>
+        </label>
+        <label>Coordinates
+          <select id="coordinateSelect">
+            <option value="comoving">Fiducial comoving Mpc/h</option>
+            <option value="proper">Fiducial proper Mpc/h</option>
+            <option value="observed">Observed variables</option>
+          </select>
+        </label>
+        <label>Projection
+          <select id="projectionSelect">
+            <option value="3d">Full 3D</option>
+            <option value="radec">RA-Dec sky</option>
+            <option value="raz">RA-redshift wedge</option>
+            <option value="decz">Dec-redshift wedge</option>
+            <option value="xy">Fiducial x-y</option>
+            <option value="xz">Fiducial x-z</option>
+            <option value="yz">Fiducial y-z</option>
+          </select>
+        </label>
+        <label>Redshift slab
+          <input id="zSlab" type="range" min="0" max="100" step="1" value="100">
+        </label>
+      </div>
+
+      <div class="panel-section">
+        <h2>Appearance</h2>
+        <label>Color by
+          <select id="colorBy"></select>
+        </label>
+        <label>Size by
+          <select id="sizeBy"></select>
+        </label>
+        <label>Point scale
+          <input id="pointScale" type="range" min="0.5" max="5" step="0.1" value="1.5">
+        </label>
+        <label>Opacity
+          <input id="opacity" type="range" min="0.08" max="1" step="0.02" value="0.78">
+        </label>
+      </div>
+
+      <details class="panel-section" open>
+        <summary>Grid and labels</summary>
+        <label><input id="showGrid" type="checkbox" checked> Show grid</label>
+        <label><input id="showLabels" type="checkbox" checked> Show labels</label>
+        <label>Grid opacity
+          <input id="gridOpacity" type="range" min="0" max="1" step="0.05" value="0.35">
+        </label>
+        <label>Label size
+          <input id="labelSize" type="range" min="10" max="24" step="1" value="12">
+        </label>
+      </details>
+
+      <div class="panel-section">
+        <h2>Status</h2>
+        <div id="status" class="status">Loading manifest...</div>
+        <div id="cosmo" class="cosmo"></div>
+      </div>
+    </aside>
+
+    <footer id="legend" class="legend"></footer>
+  </main>
+  <script type="module" src="app.js?v=renderfix-20260619"></script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 # Reproducible environment for the ECHOES pipeline (completion + validation + report).
-# conda env create -f environment.yml && conda activate echoes && pip install -e .[all]
+# conda env create -f environment.yml && conda activate echoes
+# pip install -e ".[pipeline,clustering,graphgp,mask,fetch,dev]"
 name: echoes
 channels: [conda-forge]
 dependencies:

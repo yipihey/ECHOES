@@ -9,7 +9,7 @@ demand with the scripts in [`data/`](data/).
 
 ## 1. Released ECHOES products (use these to draw catalogs)
 
-Shipped in [`data_release/`](data_release/) and archived with a citable DOI:
+Shipped in [`data_release/`](data_release/) and ready for Zenodo archival:
 
 | file | size | contents |
 |---|---|---|
@@ -17,10 +17,15 @@ Shipped in [`data_release/`](data_release/) and archived with a citable DOI:
 | `cmass_south_randoms.npz` | 4.6 MB | uniform-footprint random catalog (RA, DEC, Z) |
 | `draw_samples.py` | — | standalone NumPy-only sampler |
 
+The GitHub Pages viewer at
+[`docs/visualizer/`](docs/visualizer/) is generated from the same posterior. Its
+browser bundle stores the observed/base catalog once and stores only
+realization-specific missing-redshift draws plus imaging-systematic analogs.
+
 Draw completed catalogs with no large downloads:
 ```bash
-pip install echoes
-echoes-draw --seed 0 --out catalog_0.fits          # one realization (~120k galaxies)
+pip install "echoes @ git+https://github.com/yipihey/ECHOES.git"
+echoes-draw --seed 0 --out catalog_0.npz           # one realization (~120k galaxies)
 echoes-draw --seed 0 --n 100 --out-prefix cat_      # a 100-member ensemble
 ```
 or in Python:
@@ -29,11 +34,17 @@ from echoes import load_package, draw
 pkg = load_package("data_release/cmass_south_posterior.npz")
 cat = draw(pkg, seed=0)        # dict(ra, dec, z, prov, N)
 ```
+`echoes-draw` uses the in-repo posterior when run from a clone. From a package
+install it downloads the same 2 MB file once into `~/.cache/echoes` (or
+`$ECHOES_DATA`) and verifies the SHA256 hash. FITS output is available with
+`pip install "echoes[fits] @ git+https://github.com/yipihey/ECHOES.git"` and
+`--out catalog.fits`.
 
-**Zenodo archive:** `cmass_south_posterior.npz` and `cmass_south_randoms.npz` are
-deposited at Zenodo with DOI **`10.5281/zenodo.XXXXXXX`** *(placeholder — replace
-with the minted DOI; also update `CITATION.cff` and `README.md`)*. The in-repo
-copies and the Zenodo copies are identical (verify with the SHA256 manifest below).
+**Zenodo archive status:** the data products are staged for Zenodo, but the
+public DOI is not minted in this checkout. Until the DOI is minted, cite the
+repository commit and verify any product copy against the SHA256 manifest below.
+After publishing, run `python tools/set_doi.py 10.5281/zenodo.NNNNNNN` to
+propagate the DOI into the public files.
 
 ---
 
@@ -65,7 +76,7 @@ python data/fetch_cmass_targets.py   # -> data/boss/cmass_targets_South.fits (~4
 
 ### Uniform-footprint randoms from the mangle mask (generated locally)
 ```bash
-pip install echoes[mask]             # pymangle (needs Python.h; build with a full python)
+pip install "echoes[mask] @ git+https://github.com/yipihey/ECHOES.git"
 python data/make_mangle_randoms.py   # -> data/boss/mangle_uniform_radec.npy (~6 MB)
 ```
 
@@ -85,6 +96,19 @@ python pipeline/build_release.py     # rebuilds cmass_south_posterior.npz + cmas
 ```
 The seed-0 census is deterministic: 109,636 observed + 5,272 fiber-collided +
 1,505 redshift-failure + 3,510 imaging-systematic analogs = **119,923** galaxies.
+
+Build the static WebGPU visualizer bundle from the released posterior:
+```bash
+python pipeline/build_viewer_bundle.py --seeds 0 1 2 3
+```
+This writes `docs/visualizer/data/viewer_manifest.json` and typed-array chunks
+under `docs/visualizer/data/`. Enriched builds can add raw BOSS columns,
+computed weights, or method diagnostics through the same manifest:
+```bash
+python pipeline/build_viewer_bundle.py --enriched-npz enriched_columns.npz
+```
+The enriched NPZ should contain numeric one-dimensional arrays aligned either to
+the observed catalog (`n_obs`) or to the fixed base catalog (`n_base`).
 
 ## 4. Integrity (SHA256)
 Verify any download against `data_release/SHA256SUMS`:

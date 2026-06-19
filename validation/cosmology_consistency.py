@@ -12,8 +12,7 @@ ensemble. Agreement = the completion is a drop-in, weight-free replacement.
 A fiducial cosmology (Planck18) is used ONLY to measure these statistics; the
 catalogues remain cosmology-free.
 
-    PYTHONPATH=/home/tabel/Projects/graphgp:/home/tabel/Projects/graphGP-cosmology \
-    OMP_NUM_THREADS=32 JAX_PLATFORMS=cpu ~/.venv/k3d/bin/python3 demos/validate_cosmology_consistency.py
+    OMP_NUM_THREADS=32 JAX_PLATFORMS=cpu python validation/cosmology_consistency.py
 """
 import argparse, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

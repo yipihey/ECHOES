@@ -9,8 +9,7 @@ report the fractional deviation from the default configuration. Varied:
   * photo-z k:  50 / 100 / 150
   * close-pair / collision scale used for the Δz prior:  40 / 62 / 90 arcsec
 
-    PYTHONPATH=/home/tabel/Projects/graphgp:/home/tabel/Projects/graphGP-cosmology \
-    OMP_NUM_THREADS=32 JAX_PLATFORMS=cpu ~/.venv/k3d/bin/python3 demos/audit_sensitivity.py
+    OMP_NUM_THREADS=32 JAX_PLATFORMS=cpu python validation/sensitivity.py
 """
 import argparse, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

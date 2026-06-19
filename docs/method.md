@@ -104,7 +104,8 @@ nearest-neighbor CDFs come out clean (no spike at zero separation).
   coherent redshift uncertainty. It uses a fiducial distance–redshift relation only
   as an internal coordinate gauge: completing under Planck vs Einstein–de Sitter
   changes the assigned redshifts by ~0.001 and the recovered clustering by <0.1%, so
-  it carries **no cosmological prior**. `pip install echoes[graphgp]`.
+  it carries **no cosmological prior**.
+  `pip install "echoes[graphgp] @ git+https://github.com/yipihey/ECHOES.git"`.
 
 The two agree to the percent level; neither dominates. The KNN engine is sharper on
 small scales, graphGP is smoother and slightly closer to the weighted reference on

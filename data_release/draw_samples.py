@@ -7,7 +7,7 @@ missing galaxy's redshift posterior as a compact inverse-CDF, so a "sample" is j
 a seed: this draws as many statistically-independent completed catalogs as you want,
 each ~120k galaxies, in milliseconds, with no per-sample storage.
 
-    python draw_samples.py --seed 0 --out catalog_0.fits
+    python draw_samples.py --seed 0 --out catalog_0.npz
     python draw_samples.py --seed 0 --n 100 --out-prefix cat_   # 100 realizations
     # in code:
     from draw_samples import load_package, draw
@@ -17,7 +17,7 @@ each ~120k galaxies, in milliseconds, with no per-sample storage.
 Columns: RA, DEC [deg], Z (redshift), PROV (0 observed-specz, 1 fiber-collided,
 2 redshift-failure, 3 systot-analog, 4 zhost-fallback). The catalog is equal-weight
 and cosmology-free; pair it with the bundled `cmass_south_randoms.npz` (uniform over
-the footprint). See README.md and DATA_MODEL.md.
+the footprint). See README.md, DATA.md, and docs/method.md in the repository.
 """
 import argparse
 import numpy as np
@@ -81,7 +81,12 @@ def draw(pkg, seed=0, systot=True):
 
 def _write(cat, path):
     if path.endswith(".fits"):
-        from astropy.table import Table
+        try:
+            from astropy.table import Table
+        except ImportError as exc:
+            raise SystemExit(
+                "writing FITS requires astropy; use a .npz output path or install astropy"
+            ) from exc
         Table({"RA": cat["ra"], "DEC": cat["dec"], "Z": cat["z"], "PROV": cat["prov"]}).write(
             path, overwrite=True)
     else:
@@ -93,8 +98,8 @@ def main():
     p.add_argument("--package", default="cmass_south_posterior.npz")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--n", type=int, default=1, help="number of realizations (seeds seed..seed+n-1)")
-    p.add_argument("--out", default="catalog.fits", help="output (single realization)")
-    p.add_argument("--out-prefix", default=None, help="prefix for --n>1 (writes <prefix><seed>.fits)")
+    p.add_argument("--out", default="catalog.npz", help="output (single realization)")
+    p.add_argument("--out-prefix", default=None, help="prefix for --n>1 (writes <prefix><seed>.npz)")
     p.add_argument("--no-systot", action="store_true")
     args = p.parse_args()
     pkg = load_package(args.package)
@@ -106,7 +111,7 @@ def main():
         pre = args.out_prefix or "catalog_"
         for s in range(args.seed, args.seed + args.n):
             cat = draw(pkg, seed=s, systot=not args.no_systot)
-            _write(cat, f"{pre}{s}.fits")
+            _write(cat, f"{pre}{s}.npz")
         print(f"wrote {args.n} realizations {pre}{args.seed}..{pre}{args.seed+args.n-1}.fits")
 
 

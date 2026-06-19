@@ -2,7 +2,7 @@
 
 Usage::
 
-    python demos/fetch_boss.py [--dest data/boss] [--sample CMASS|LOWZ|both]
+    python data/fetch_boss.py [--dest data/boss] [--sample CMASS|LOWZ|both]
                                [--n-randoms 1]
 
 Downloads galaxy and random FITS files for the South Galactic Cap

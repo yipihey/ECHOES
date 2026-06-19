@@ -48,7 +48,7 @@ Typical usage::
     cat = load_boss(['galaxy_DR12v5_CMASS_South.fits.gz'],
     #                ['random0_DR12v5_CMASS_South.fits.gz'])
     result = sample_posterior_density_field(cat, n_samples=20)
-    result.to_hdf5('output/2mrs_density_field.h5')
+    result.to_hdf5('output/boss_cmass_south_density_field.h5')
     grid = result.to_cartesian_grid(grid_shape=(128, 128, 128))
 """
 
@@ -762,9 +762,9 @@ def sample_posterior_density_field(
     Parameters
     ----------
     catalog
-        Any survey catalog dataclass with ``.shift_to_positive()``,
-        ``.ra_data``, ``.dec_data``, ``.z_data``.  Accepts ``TwoMRSCatalog``,
-        ``CF4Catalog``, ``BOSSCatalog``, ``QuaiaCatalog``, ``DESICatalog``.
+        Any ECHOES survey catalog dataclass with ``.shift_to_positive()``,
+        ``.ra_data``, ``.dec_data``, and ``.z_data``.  The released pipeline
+        uses ``BOSSCatalog``.
     n_samples
         Number of independent posterior draws.
     n_z_bins

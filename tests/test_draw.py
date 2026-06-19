@@ -35,3 +35,13 @@ def test_observed_fixed_missing_varies():
     np.testing.assert_array_equal(a["z"][:n_obs], b["z"][:n_obs])        # observed shared
     assert not np.array_equal(a["z"][n_obs:n_obs + pkg["n_miss"]],
                               b["z"][n_obs:n_obs + pkg["n_miss"]])        # missing differ
+
+
+def test_cli_npz_output(tmp_path):
+    from echoes.cli import draw_main
+
+    out = tmp_path / "catalog_0.npz"
+    draw_main(["--package", PKG, "--seed", "0", "--out", str(out)])
+    d = np.load(out)
+    assert set(d.files) == {"ra", "dec", "z", "prov"}
+    assert len(d["ra"]) == 119923

@@ -7,7 +7,7 @@ name = "echoes"
 version = "0.1.0"
 description = "ECHOES: Equal-weight Completed Hypothetical Observation Ensembles — survey-ready posterior samples of completed galaxy catalogs"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [{name = "Tom Abel", email = "tabel@stanford.edu"}]
 keywords = ["cosmology", "galaxy surveys", "large-scale structure", "BOSS", "astrostatistics"]
@@ -17,21 +17,22 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "License :: OSI Approved :: MIT License",
 ]
-# Core: the default KNN-field completion + the released numpy sampler need only
-# numpy at runtime; the validation/measurement layer adds the rest.
+# Core: the released posterior sampler is NumPy-only. Rebuilding the posterior,
+# measuring clustering, fetching survey inputs, and report generation are extras.
 dependencies = [
   "numpy>=1.24",
-  "scipy>=1.10",
-  "astropy>=5.3",
-  "healpy>=1.16",
-  "matplotlib>=3.7",
 ]
 
 [project.optional-dependencies]
+# FITS output from echoes-draw / data_release/draw_samples.py.
+fits = ["astropy>=5.3"]
+# Rebuilding the BOSS release and running validation scripts.
+pipeline = ["scipy>=1.10", "astropy>=5.3", "healpy>=1.16", "matplotlib>=3.7", "numba>=0.58"]
 # Standard projected/multipole clustering measurements (Corrfunc).
-clustering = ["Corrfunc>=2.5", "numba>=0.58"]
+clustering = ["scipy>=1.10", "astropy>=5.3", "Corrfunc>=2.5", "numba>=0.58"]
 # graphGP conditional-field engine (optional, correlated posterior).
 graphgp = [
+  "scipy>=1.10", "astropy>=5.3", "healpy>=1.16",
   "graphgp @ git+https://github.com/yipihey/graphgp@hierarchical-chunked-generation",
   "jax>=0.4", "h5py>=3.8",
 ]
@@ -41,12 +42,9 @@ graphgp = [
 nifty = ["nifty8>=8.5", "jax>=0.4", "optax>=0.2"]
 # One-time uniform-randoms generation from the survey mangle mask.
 mask = ["pymangle>=0.9.4"]
-# Building the interactive Veusz HTML report.
-report = ["veusz>=3.6", "PyQt6>=6.5"]
 # Fetching imaging targets / Gaia bright stars.
-fetch = ["astroquery>=0.4.7"]
+fetch = ["astropy>=5.3", "astroquery>=0.4.7"]
 dev = ["pytest>=7"]
-all = ["echoes[clustering,graphgp,mask,report,fetch,dev]"]
 
 [project.urls]
 Homepage = "https://github.com/yipihey/ECHOES"

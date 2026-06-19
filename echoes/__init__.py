@@ -2,7 +2,8 @@
 
 Survey-ready posterior samples of completed galaxy catalogs. The default engine
 is a fast local-density (KNN) redshift completion; an optional graphGP engine
-provides a correlated conditional-field posterior (``pip install echoes[graphgp]``).
+provides a correlated conditional-field posterior
+(``pip install "echoes[graphgp] @ git+https://github.com/yipihey/ECHOES.git"``).
 """
 __version__ = "0.1.0"
 

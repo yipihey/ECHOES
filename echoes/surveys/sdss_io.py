@@ -39,7 +39,7 @@ def _read_clustering_fits(
             return np.asarray(t[name], dtype=np.float64) if name.upper() in cols else None
 
         ra = col("RA"); dec = col("DEC")
-        z = col("Z") if "Z" in cols else col("Z_QSO_HP")
+        z = col("Z")
         if ra is None or dec is None or z is None:
             raise ValueError(f"{path}: required columns RA/DEC/Z missing")
 

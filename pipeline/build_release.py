@@ -9,8 +9,7 @@ Writes:
   data_release/draw_samples.py             standalone numpy-only sampler (shipped separately)
   data_release/README.md                   quickstart
 
-    PYTHONPATH=/home/tabel/Projects/graphgp:/home/tabel/Projects/graphGP-cosmology \
-    OMP_NUM_THREADS=16 JAX_PLATFORMS=cpu ~/.venv/k3d/bin/python3 demos/build_release_bundle.py
+    OMP_NUM_THREADS=16 JAX_PLATFORMS=cpu python pipeline/build_release.py
 """
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -71,8 +70,8 @@ posterior is stored compactly so you draw as many samples as you like locally.
 
 ## Quickstart
 ```bash
-pip install numpy astropy
-python draw_samples.py --seed 0 --out catalog_0.fits        # one realization
+pip install numpy
+python draw_samples.py --seed 0 --out catalog_0.npz         # one realization
 python draw_samples.py --seed 0 --n 100 --out-prefix cat_   # 100 realizations
 ```
 ```python
@@ -100,8 +99,8 @@ Roll-up groups (observed / completed:fiber-collision / completed:redshift-failur
 / inpainted) and matching display colours are in echoes.completion.PROV_GROUP /
 PROV_COLOR; tools/viz_provenance.py renders the catalog coloured by them.
 
-See DATA_MODEL.md (repository root) for full conventions, scope, and the
-systematics budget.
+See DATA.md and docs/method.md (repository root) for product conventions, scope,
+and the systematics budget.
 """
     with open(os.path.join(OUT, "README.md"), "w") as f:
         f.write(readme)

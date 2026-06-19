@@ -16,8 +16,7 @@ posterior on a HEALPix x z-shell grid (correlated across missing galaxies, but
 limited by grid resolution and S/N, and it uses a fiducial cosmology in the prior
 kernel). This quantifies the trade.
 
-    PYTHONPATH=/home/tabel/Projects/graphgp:/home/tabel/Projects/graphGP-cosmology \
-    JAX_PLATFORMS=cpu OMP_NUM_THREADS=16 ~/.venv/k3d/bin/python3 demos/graphgp_vs_knn_zfield.py
+    JAX_PLATFORMS=cpu OMP_NUM_THREADS=16 python validation/graphgp_vs_knn.py
 """
 import argparse, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
