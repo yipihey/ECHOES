@@ -25,7 +25,7 @@ from scipy.spatial import cKDTree
 from Corrfunc.mocks.DDtheta_mocks import DDtheta_mocks
 from echoes.surveys.boss import load_boss
 from echoes.photoz import PhotoZKNN, photoz_features
-from echoes.observed import _radec_to_nhat
+from echoes.geometry import _radec_to_nhat
 from echoes.completion import complete_catalog_photoz, measure_close_pair_dz
 from echoes.clustering import wp_rp
 from echoes.randoms import make_random_from_selection_function

@@ -1,28 +1,38 @@
-"""GP posterior density field sampler.
+"""Smooth 3D galaxy density-field engine (adaptive FKP-KDE + coverage ensemble).
 
-Upgrades the graphGP pipeline from prior sampling to proper Bayesian
-posterior sampling of the smooth 3D galaxy number density field δ(x)
-conditioned on observed galaxy positions and survey selection.
+The optional ECHOES density-field route. It estimates the smooth galaxy
+overdensity field ``1+δ(x)`` and produces an *ensemble* of field draws whose
+spread is largest where the data are sparse — a fast, data-driven proxy for a
+field posterior. It is NOT an exact Gaussian-process conditional solve (see the
+implementation note below).
 
-**Likelihood model** (Gaussian approximation of Poisson process):
-    y_i = 1/nbar_i − 1   (observed overdensity: one galaxy at x_i)
-    σ²_i = 1/nbar_i      (Poisson noise variance)
-    L(data | δ) ≈ N(y_i ; δ(x_i), σ²_i)
+**Field estimate (the ensemble mean)** — an adaptive FKP kernel-density ratio:
 
-**Prior**:
-    δ(x) ~ GP(0, K_ξ)   where K_ξ(r) = ξ(r) from Landy-Szalay
+    1 + δ_FKP(x) = [ Σ_i w_i K(x, x_i^data) ] / [ α_w Σ_j K(x, x_j^rand) ]
 
-**Posterior** (Gaussian):
-    p(δ | data) = GP(μ_post, C_post)
-    μ_post(x) = K(x, x_D) [K_DD + N_D]⁻¹ y_D
-    C_post(x,x') = K(x,x') − K(x, x_D) [K_DD + N_D]⁻¹ K(x_D, x')
+normalised to unit mean over the survey, where ``K(r)`` is a kernel tabulated
+from a Landy–Szalay measurement of ξ(r) (so the smoothing scale follows the
+measured clustering), ``w_i`` are completeness weights, and ``α_w = Σw/N_rand``.
+The random catalog supplies the survey selection function in the denominator.
 
-**Sampling via Matheron's rule** (pathwise conditioning, one draw per ε):
-    δ_post(x) = δ_prior(x) + K(x, x_D) [K_DD + N_D]⁻¹ [y_D − δ_prior(x_D)]
+**Ensemble (the spread)** — each draw adds a coverage-scaled stochastic term:
 
-where δ_prior = L ε is a draw from the GP prior via the Vecchia
-Cholesky factor L.  Different draws of ε ~ N(0,I) give independent
-posterior samples.  Cost: O(N_D k³) per sample.
+    δ^(s)(x) = δ_FKP(x) + prior_scale · (1 − coverage(x)) · η^(s)(x)
+
+with ``prior_scale`` calibrated to the FKP amplitude and ``coverage(x) ∈ [0,1]``
+the local data proximity, so the spread is full-amplitude where the survey is
+data-poor and suppressed near data. At observed-galaxy positions ``η`` is a
+ξ-correlated draw generated on a sparse Vecchia neighbour graph; the stored
+light-cone product uses an uncorrelated (white) ``η`` per voxel.
+
+**Implementation note (honest scope).** This engine is a heuristic field
+posterior, not the Matheron/Vecchia conditional GP: there is no
+``[K_DD+N]⁻¹`` solve — the ``_cg_solve``/``_vecchia_matvec`` machinery for that
+exact path is intentionally not wired into the released estimator. The field is
+the FKP-KDE above with a coverage-scaled noise ensemble. The conditional-GP
+equations were the original design target; the shipped (fast, robust) engine is
+this FKP-KDE+coverage construction, which is what the paper §"graphGP complement"
+describes.
 
 **Primary output format** — lightcone-native (HealPIX × redshift shells):
     delta_lightcone : (n_samples, n_z_bins, N_pix) float32
@@ -511,63 +521,6 @@ def _z_edges_to_comoving(
     return np.asarray(comoving_distance(jnp.asarray(z_edges), cosmo))
 
 
-def _vecchia_matvec(
-    graph, cov, noise_var: np.ndarray, v: np.ndarray
-) -> np.ndarray:
-    """Compute (K + N) v where K is the Vecchia covariance.
-
-    Uses the identity:  (L L^T) v = L (L^T v) = generate(graph, cov, generate_inv(graph, cov, v))
-    which avoids forming K explicitly.
-    """
-    import jax
-    import jax.numpy as jnp
-    import graphgp as gp
-
-    v_jax = jnp.asarray(v, dtype=jnp.float64)
-    # K v = L L^T v = generate(graph, cov, L^{-1} v)
-    #                               ↑= generate_inv(graph, cov, v)
-    Lti_v = gp.generate_inv(graph, cov, v_jax)
-    Kv = np.asarray(gp.generate(graph, cov, Lti_v))
-    Nv = noise_var * v
-    return Kv + Nv
-
-
-def _cg_solve(
-    matvec,
-    rhs: np.ndarray,
-    x0: Optional[np.ndarray] = None,
-    maxiter: int = 100,
-    tol: float = 1e-4,
-) -> Tuple[np.ndarray, int, float]:
-    """Conjugate gradient for (K+N) α = rhs.
-
-    Returns (solution, n_iters, final_residual_norm).
-    """
-    n = len(rhs)
-    x = np.zeros(n) if x0 is None else x0.copy()
-    r = rhs - matvec(x)
-    p = r.copy()
-    r_dot = float(np.dot(r, r))
-    rhs_norm = float(np.linalg.norm(rhs))
-    if rhs_norm < 1e-15:
-        return x, 0, 0.0
-
-    for i in range(maxiter):
-        Ap = matvec(p)
-        alpha = r_dot / float(np.dot(p, Ap))
-        x = x + alpha * p
-        r = r - alpha * Ap
-        r_dot_new = float(np.dot(r, r))
-        res = np.sqrt(r_dot_new) / rhs_norm
-        if res < tol:
-            return x, i + 1, float(res)
-        beta = r_dot_new / r_dot
-        p = r + beta * p
-        r_dot = r_dot_new
-
-    return x, maxiter, float(np.sqrt(r_dot) / rhs_norm)
-
-
 def _fkp_kde(
     xyz_query: np.ndarray,
     xyz_data: np.ndarray,
@@ -794,14 +747,17 @@ def sample_posterior_density_field(
     seed: int = 0,
     verbose: bool = True,
 ) -> DensityFieldResult:
-    """Sample posterior 3D galaxy density fields from a survey catalog.
+    """Sample an ensemble of smooth 3D galaxy density fields from a survey catalog.
 
-    Implements Matheron's pathwise conditioning rule on the Vecchia GP:
+    Builds the adaptive FKP-KDE field estimate (mean) and a coverage-scaled
+    stochastic ensemble (see the module docstring):
 
-        δ_post(x) = L ε + K(x, x_D) [K_DD + N_D]⁻¹ [y_D − L ε|_D]
+        δ^(s)(x) = δ_FKP(x) + prior_scale · (1 − coverage(x)) · η^(s)(x)
 
-    for independent draws ε ~ N(0, I).  Each call to this function runs
-    n_samples independent posterior draws.
+    for independent draws (ξ-correlated η at data positions via the Vecchia
+    graph; white η per light-cone voxel). This is a fast, robust field-posterior
+    proxy, not an exact ``[K_DD+N]⁻¹`` Matheron/Vecchia conditional solve.
+    Each call runs ``n_samples`` independent draws.
 
     Parameters
     ----------
@@ -817,13 +773,15 @@ def sample_posterior_density_field(
         HealPIX NSIDE for the angular resolution.  NSIDE=64 gives ~49k
         pixels per shell (angular resolution ~0.9°).
     n0, k
-        Vecchia graph parameters: dense initial block size and number of
-        conditional neighbours per point.
+        Vecchia graph parameters (dense initial block, conditional neighbours
+        per point) for the ξ-correlated prior draw used as the data-position
+        noise term.
     k_nni
-        Number of nearest data galaxies used per query voxel for the NNI
-        Matheron correction step.
+        Number of nearest data/random galaxies used per query point in the
+        FKP-KDE kernel-ratio density estimate.
     cg_maxiter, cg_tol
-        Conjugate-gradient solver budget for (K_DD + N_D) α = r.
+        Retained for API compatibility; unused by the FKP-KDE+coverage engine
+        (no conditional solve is performed).
     r_edges
         Pair-counting bin edges for ξ(r).  Default: 40 log-spaced bins
         from 1 to 50 Mpc/h (appropriate for the local-universe surveys;

@@ -343,6 +343,7 @@ def complete_catalog_photoz(
     dz_pool=None,
     count: str = "round",
     systot_mode: str = "analog",
+    systot_thin: bool = True,
     z_mode: str = "field",
     gp_field=None,
     gp_kwargs=None,
@@ -360,18 +361,24 @@ def complete_catalog_photoz(
 
     ``systot_mode`` controls (3):
 
-    - ``'analog'`` (default): the integer **excess** ``n_i−1`` of each object is
-      restored at the survivor scale (:func:`_systot_restore_extras`) — a
-      sub-arcsec jitter of the source position carrying its redshift — which
+    - ``'analog'`` (default): the integer **excess** ``max(w_systot−1,0)`` of each
+      object is restored at the survivor scale (:func:`_systot_restore_extras`) —
+      a sub-arcsec jitter of the source position carrying its redshift — which
       reproduces w(θ)/ξ at all resolved scales while removing the unphysical
       Δθ=0 delta-spike that exact duplication creates and that corrupts kNN /
-      coincident-point statistics. One un-jittered copy of each object with
-      ``n_i≥1`` is kept; ``n_i=0`` thins it.
+      coincident-point statistics. With ``systot_thin=True`` (default) the
+      complement is also applied — each base object is **kept with probability
+      min(w_systot,1)** — so regions with ``w_systot<1`` (64% of CMASS-South) are
+      thinned rather than left over-dense; otherwise the equal-weight catalog
+      reproduces a ``max(w_systot,1)``-weighting and imprints a degree-scale
+      imaging-systematic gradient. ``systot_thin=False`` is the legacy add-only
+      behavior (keeps every detection).
     - ``'duplicate'`` (legacy, for A/B tests): ``n_i`` exact copies via
       ``np.repeat`` (creates Δθ=0 duplicates; biases small-scale/higher-order).
 
-    Either way E[count per host group] = w_systot·(w_cp+w_noz−1) = w_c, so the
-    weighted clustering is reproduced in the mean. Cosmology-free throughout.
+    With ``systot_thin`` E[count per base object] = w_systot, so the
+    w_systot-weighted density is reproduced in the ensemble mean (the per-draw
+    thinning shot noise is part of the calibrated spread). Cosmology-free throughout.
     Returns ``dict(ra, dec, z, N, prov)`` where ``prov`` is a per-object
     provenance code (see :data:`PROV`).
 
@@ -515,17 +522,29 @@ def complete_catalog_photoz(
              else np.floor(base_wsys + rng.random(len(base_wsys))).astype(int))
         idx = np.repeat(np.arange(len(base_ra)), n)
         out_ra, out_dec, out_z, out_prov = base_ra[idx], base_dec[idx], base_z[idx], base_prov[idx]
-    else:                                                  # 'analog': KEEP ALL real galaxies,
-        # add only the WEIGHT_SYSTOT EXCESS as local analogs. Never drop a real detection
-        # (so all correlation functions are preserved and no observed galaxy is discarded);
-        # E[n_i] = 1 + max(w_systot-1,0). The excess restores the imaging-systematic deficit.
+    else:                                                  # 'analog'
+        # MEAN-PRESERVING imaging-systematic completion: E[count per base object]
+        # = w_systot. Restore the deficit where w_systot>1 by adding local analogs
+        # (max(w_systot-1,0) per object), AND — with systot_thin (default) — thin
+        # where w_systot<1 by dropping each base object with probability
+        # 1-w_systot. Thinning only the excess (add-only) would half-correct the
+        # systematic: w_systot<1 regions (64% of CMASS-South) would stay over-dense
+        # and imprint a degree-scale density gradient that the equal-weight catalog
+        # is meant to remove. The drop is stochastic per realization; the ensemble
+        # mean is exactly w_systot-weighted, and the per-realization shot noise is
+        # part of the calibrated completion spread. systot_thin=False recovers the
+        # legacy add-only behavior (keeps every detection; leaves the <1 gradient).
+        if systot_thin:
+            keep = rng.random(len(base_wsys)) < np.minimum(base_wsys, 1.0)
+        else:
+            keep = np.ones(len(base_wsys), bool)
         n_extra = np.floor(np.maximum(base_wsys - 1.0, 0.0) + rng.random(len(base_wsys))).astype(int)
         src = np.repeat(np.arange(len(base_ra)), n_extra)
         ex_ra, ex_dec, ex_z = _systot_restore_extras(base_ra, base_dec, base_z, src, rng)
-        out_ra = np.concatenate([base_ra, ex_ra])
-        out_dec = np.concatenate([base_dec, ex_dec])
-        out_z = np.concatenate([base_z, ex_z])
-        out_prov = np.concatenate([base_prov, np.full(len(ex_ra), PROV["systot"])])
+        out_ra = np.concatenate([base_ra[keep], ex_ra])
+        out_dec = np.concatenate([base_dec[keep], ex_dec])
+        out_z = np.concatenate([base_z[keep], ex_z])
+        out_prov = np.concatenate([base_prov[keep], np.full(len(ex_ra), PROV["systot"])])
     if verbose:
         print(f"[complete-photoz] N_obs={len(ra_o):,} + {targets.N:,} missing "
               f"-> N_eq={len(out_ra):,} (+{100*(len(out_ra)/len(ra_o)-1):.1f}%), "

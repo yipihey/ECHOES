@@ -81,8 +81,12 @@ def main():
     # within-mock completion scatter vs mock-to-mock (cosmic) scatter, fractional
     cmp_std = wp_ens.std(axis=1).mean(0) / wp_truth.mean(0)          # completion uncertainty
     mock_std = wp_truth.std(0) / wp_truth.mean(0)                    # cosmic variance
+    from echoes.pit import pit_uniformity, format_pit
+    pu = pit_uniformity(pit)
     print(f"\ncoverage (68% band, target 0.68): {cov:.2f}  over {inside.size} (mock,bin) cells")
-    print(f"PIT mean {pit.mean():.2f} (0.5 ideal), std {pit.std():.2f} (0.29 ideal)")
+    print(f"PIT uniformity: {format_pit(pu)}")
+    print(f"  (mean alone is insufficient — KS/χ² p≳0.05 is the calibration statement; "
+          f"a U-shaped over-confident PIT also has mean 0.5)")
     print(f"{'rp':>8}{'cmp_unc%':>10}{'cosmic%':>10}{'ratio':>8}")
     for i in range(len(rpc)):
         print(f"{rpc[i]:8.2f}{100*cmp_std[i]:10.2f}{100*mock_std[i]:10.2f}{cmp_std[i]/max(mock_std[i],1e-9):8.2f}")
@@ -98,7 +102,7 @@ def main():
     a.hist(pit, bins=10, range=(0, 1), color="#3a6ea8", alpha=0.8, edgecolor="white")
     a.axhline(len(pit)/10, color="r", ls="--", label="uniform (calibrated)")
     a.set_xlabel("PIT: rank of truth in ensemble"); a.set_ylabel("count"); a.legend()
-    a.set_title(f"calibration  (coverage {cov:.2f}, target 0.68)")
+    a.set_title(f"calibration  (cov {cov:.2f}/0.68, KS p={pu['ks_p']:.2f}, χ² p={pu['chi2_p']:.2f})")
     a = ax[2]
     a.loglog(rpc, 100*cmp_std, "o-", color="#3a6ea8", label="completion uncertainty")
     a.loglog(rpc, 100*mock_std, "s--", color="#c0392b", label="cosmic variance (mock-to-mock)")

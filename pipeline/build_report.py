@@ -147,6 +147,8 @@ def compute(quick=False):
     pit = np.array([np.sum(wk[i][np.isfinite(wk[i])] * (zk[i][np.isfinite(wk[i])] < zt[i]))
                     for i in range(len(zt))])
     D["pit"] = pit; D["pz_zsample"] = pz_cal.sample(fg[test], rs, n=1)
+    from echoes.pit import pit_uniformity
+    D["pit_stats"] = pit_uniformity(pit)
     D["frac_reliable_phot"] = float(good.sum() / cat.N_data)
     # colour-redshift (subsample with reliable colours)
     cs = rs.choice(np.where(good)[0], min(30000, good.sum()), replace=False)
@@ -506,7 +508,7 @@ def render(D, figs, Dm, Dc):
       <div>Missing fraction: <b>{100*g('miss_frac'):.1f}%</b></div>
       <div>Reliable photometry: <b>{100*g('frac_reliable_phot'):.1f}%</b></div>
       <div>Photo-z σ<sub>NMAD</sub>: <b>{g('sigma_nmad'):.3f}</b></div>
-      <div>Photo-z PIT mean: <b>{D['pit'].mean():.3f}</b> (0.5 ideal)</div>
+      <div>Photo-z PIT: <b>mean {D['pit_stats']['mean']:.3f}</b>, KS p={D['pit_stats']['ks_p']:.2f} (uniform if ≳0.05)</div>
       <div>Recovered collided: <b>{int(D['n_collided']):,}</b> / {int(round(g('wcp_implied'))):,} implied</div>
       <div>Recovered z-failures: <b>{int(D['n_zfail']):,}</b> / {int(round(g('wnoz_implied'))):,} implied</div>
       <div>Angular w(θ) closure: <b>≈ {100*np.nanmean((D['wt_ens_data'].mean(0)/D['wt_data']))-100:+.0f}%</b></div>
@@ -616,7 +618,9 @@ def render(D, figs, Dm, Dc):
              f"(σ<sub>NMAD</sub>={g('sigma_nmad'):.3f}, bias {g('pz_bias'):+.4f}, "
              f"{100*g('pz_outlier'):.1f}% catastrophic). <b>Middle:</b> the probability-integral-"
              f"transform histogram — the rank of each true redshift within its own posterior. A flat "
-             f"PIT (mean {D['pit'].mean():.3f}, ideal 0.5) means the posterior is statistically "
+             f"PIT (mean {D['pit_stats']['mean']:.3f}, ideal 0.5; KS p={D['pit_stats']['ks_p']:.2f}, "
+             f"χ² p={D['pit_stats']['chi2_p']:.2f} vs uniform — the mean alone is insufficient since a "
+             f"U-shaped over-confident PIT also has mean 0.5) means the posterior is statistically "
              f"<i>calibrated</i>, so drawing a redshift from it is faithful — the property the "
              f"completion relies on. <b>Right:</b> a single posterior draw per object recovers the "
              f"true held-out n(z). Assumption: the colour→z mapping learned from good-redshift "
@@ -1107,7 +1111,7 @@ def compute_mask():
     import healpy as hp
     from Corrfunc.mocks.DDtheta_mocks import DDtheta_mocks
     from echoes.surveys.boss import load_boss
-    from echoes.observed import _radec_to_nhat
+    from echoes.geometry import _radec_to_nhat
     from echoes.inpaint import fine_completeness_map, find_interior_holes, inpaint_holes
 
     def wtheta(ra_d, dec_d, ra_r, dec_r, tb):
@@ -1150,7 +1154,7 @@ def compute_mask():
 
     # ---- inpaint GALLERY: holes shown with their CAUSE (bright stars / bad fields) ----
     # work in wrapped RA so holes near RA=0/360 are contiguous; store per-hole.
-    from echoes.observed import _radec_to_nhat
+    from echoes.geometry import _radec_to_nhat
     from scipy.spatial import cKDTree
     wrap = lambda r: ((np.asarray(r, float) + 180.0) % 360.0) - 180.0
     hid_all = real["hole_id"].astype(int)
