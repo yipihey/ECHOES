@@ -1,0 +1,17 @@
+{
+  "metadata": {
+    "title": "ECHOES completed-catalog posterior products for BOSS DR12 CMASS-South",
+    "upload_type": "dataset",
+    "access_right": "open",
+    "license": "cc-by-4.0",
+    "version": "0.1.0",
+    "description": "<p>Released data products of the ECHOES method for BOSS DR12 CMASS-South: a compact posterior over equal-weight, cosmology-free completed galaxy catalogs, a matching uniform-footprint random catalog, and a standalone NumPy sampler.</p><ul><li><b>cmass_south_posterior.npz</b> (2.0 MB) &mdash; the completion posterior: the 109,636 observed galaxies plus an inverse-CDF redshift posterior for each of the 6,777 spectroscopically-missing targets. Drawing seed s yields a complete equal-weight catalog of ~119,923 galaxies.</li><li><b>cmass_south_randoms.npz</b> (4.6 MB) &mdash; 438,544 uniform-footprint randoms (RA, DEC, Z).</li><li><b>draw_samples.py</b> &mdash; standalone sampler (NumPy only).</li></ul><p>A reproducible ensemble is the set of integer seeds. See the code, documentation, and the paper at the related repository.</p>",
+    "creators": [
+      {"name": "Abel, Tom", "affiliation": "Kavli Institute for Particle Astrophysics and Cosmology, Stanford University"}
+    ],
+    "keywords": ["cosmology", "galaxy surveys", "large-scale structure", "BOSS", "CMASS", "galaxy clustering", "astrostatistics"],
+    "related_identifiers": [
+      {"relation": "isSupplementedBy", "identifier": "https://github.com/yipihey/ECHOES", "scheme": "url"}
+    ]
+  }
+}

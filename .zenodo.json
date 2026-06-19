@@ -1,0 +1,14 @@
+{
+  "title": "ECHOES: Equal-weight Completed Hypothetical Observation Ensembles for BOSS DR12 CMASS-South",
+  "description": "ECHOES turns a spectroscopic galaxy survey into an ensemble of equal-weight, cosmology-free completed catalogs: observed galaxies are kept and the spectroscopically-missing galaxies are restored at their real imaging positions with data-driven redshifts, so any clustering statistic can be run directly on completed point catalogs. This is the software package and reproducible pipeline for the first release (BOSS DR12 CMASS-South).",
+  "upload_type": "software",
+  "license": "MIT",
+  "access_right": "open",
+  "creators": [
+    {"name": "Abel, Tom", "affiliation": "Kavli Institute for Particle Astrophysics and Cosmology, Stanford University"}
+  ],
+  "keywords": ["cosmology", "galaxy surveys", "large-scale structure", "BOSS", "astrostatistics", "catalog completion"],
+  "related_identifiers": [
+    {"relation": "isSupplementTo", "identifier": "https://github.com/yipihey/ECHOES", "scheme": "url"}
+  ]
+}

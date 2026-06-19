@@ -91,3 +91,25 @@ Verify any download against `data_release/SHA256SUMS`:
 ```bash
 cd data_release && sha256sum -c SHA256SUMS
 ```
+
+---
+
+## 5. Minting the Zenodo DOI (maintainers)
+
+The data products are deposited as a Zenodo **dataset**; the repository itself is
+archived as **software** on each GitHub Release via the GitHub–Zenodo integration
+(metadata in [`.zenodo.json`](.zenodo.json)).
+
+To deposit the data products and reserve the DOI:
+```bash
+export ZENODO_TOKEN=...                       # token with deposit:write scope
+python pipeline/deposit_zenodo.py --sandbox   # dry run on sandbox.zenodo.org first
+python pipeline/deposit_zenodo.py             # real deposit (leaves a DRAFT to review)
+```
+This uploads `data_release/*` with the metadata in
+[`data_release/zenodo_metadata.json`](data_release/zenodo_metadata.json) and prints
+the reserved DOI and a review URL. Review and click **Publish** in the Zenodo UI,
+then propagate the DOI everywhere:
+```bash
+python tools/set_doi.py 10.5281/zenodo.NNNNNNN   # updates DATA.md, README, CITATION.cff, data_release/README.md
+```
