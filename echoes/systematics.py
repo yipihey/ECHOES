@@ -49,6 +49,69 @@ def _chi2_flat(F, sigma, ok):
     return float(np.sum(((F[m] - 1.0) / sigma[m]) ** 2) / m.sum())
 
 
+class JackknifeMap:
+    """A fixed sky→region assignment: NESTED HEALPix pixels grouped into ``~n_reg``
+    contiguous, count-balanced blocks. Build ONCE from a reference catalogue that
+    defines the footprint (the randoms), then ``assign`` data and randoms with the
+    *same* mapping — region ``k`` is then the identical sky patch in every
+    catalogue, which is what makes the delete-one jackknife valid."""
+
+    def __init__(self, ra, dec, n_reg=48, nside=8):
+        import healpy as hp
+        self._hp = hp; self.nside = nside; self.n_reg = n_reg
+        pix = self._pix(ra, dec)
+        upix, cnt = np.unique(pix, return_counts=True)
+        cum = np.cumsum(cnt); total = cum[-1]
+        grp = np.minimum((cum * n_reg // (total + 1)).astype(int), n_reg - 1)
+        self._lut = dict(zip(upix.tolist(), grp.tolist()))
+
+    def _pix(self, ra, dec):
+        return self._hp.ang2pix(self.nside, np.radians(90.0 - np.asarray(dec)),
+                                np.radians(np.asarray(ra) % 360.0), nest=True)
+
+    def assign(self, ra, dec):
+        pix = self._pix(ra, dec)
+        return np.array([self._lut.get(int(p), -1) for p in pix])
+
+
+def jackknife_regions(ra, dec, n_reg=48, nside=8):
+    """Convenience: build a :class:`JackknifeMap` and assign these points. For a
+    valid cross-catalogue jackknife, build one ``JackknifeMap`` from the randoms
+    and call ``.assign`` on every catalogue instead (so region ``k`` is the same
+    sky patch everywhere)."""
+    return JackknifeMap(ra, dec, n_reg=n_reg, nside=nside).assign(ra, dec)
+
+
+def density_vs_template_jk(t_data, t_rand, edges, reg_data, reg_rand,
+                           w_data=None, w_rand=None):
+    """Like :func:`density_vs_template` but with a delete-one **jackknife**
+    covariance over angular regions instead of Poisson errors — the per-bin sigma
+    then includes sample/cosmic variance from galaxy clustering, which Poisson
+    shot noise badly underestimates for a clustered field (DES Y6 uses jackknife/
+    mock covariance for exactly this reason). Returns ``(F, sigma_jk, ok)``.
+    """
+    t_data = np.asarray(t_data, float); t_rand = np.asarray(t_rand, float)
+    reg_data = np.asarray(reg_data); reg_rand = np.asarray(reg_rand)
+    wd = None if w_data is None else np.asarray(w_data, float)
+    wr = None if w_rand is None else np.asarray(w_rand, float)
+    F_full, _, ok = density_vs_template(t_data, t_rand, edges, wd, wr)
+    regions = np.unique(np.concatenate([reg_data, reg_rand]))
+    Fs = np.full((len(regions), len(edges) - 1), np.nan)
+    for k, r in enumerate(regions):
+        dm = reg_data != r; rm = reg_rand != r
+        if dm.sum() < 2 or rm.sum() < 2:
+            continue
+        Fk, _, okk = density_vs_template(
+            t_data[dm], t_rand[rm], edges,
+            None if wd is None else wd[dm], None if wr is None else wr[rm])
+        Fs[k] = np.where(okk, Fk, np.nan)
+    njk = np.isfinite(Fs).sum(0)
+    mean = np.nanmean(Fs, 0)
+    var = (njk - 1) / np.maximum(njk, 1) * np.nansum((Fs - mean) ** 2, 0)
+    sigma = np.where(njk > 1, np.sqrt(np.maximum(var, 0)), np.inf)
+    return F_full, sigma, ok
+
+
 @dataclass
 class ISDResult:
     names: List[str]
