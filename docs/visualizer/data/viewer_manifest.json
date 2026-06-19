@@ -92,32 +92,44 @@
         "0": {
           "color": "#d8dde5",
           "description": "Original BOSS CMASS-South galaxy with a measured spectroscopic redshift.",
+          "group": "observed",
           "label": "observed spectroscopy",
           "short_label": "observed"
         },
         "1": {
           "color": "#39b5ff",
           "description": "ECHOES galaxy restored at an imaging-target position affected by the fiber-collision scale.",
+          "group": "completed:fiber-collision",
           "label": "fiber-collision completion",
           "short_label": "collided"
         },
         "2": {
           "color": "#c071ff",
           "description": "ECHOES galaxy restored for a failed spectroscopic redshift.",
+          "group": "completed:redshift-failure",
           "label": "redshift-failure completion",
           "short_label": "zfail"
         },
         "3": {
           "color": "#ffb84d",
-          "description": "ECHOES analog galaxy sampled from the WEIGHT_SYSTOT multiplicity model.",
+          "description": "ECHOES analog galaxy sampled from the WEIGHT_SYSTOT multiplicity model (synthetic inpaint, not a real missing galaxy).",
+          "group": "inpainted:imaging-systematic",
           "label": "imaging-systematic analog",
           "short_label": "systot"
         },
         "4": {
           "color": "#ff6f61",
-          "description": "Fallback redshift assignment used when a missing-galaxy posterior is degenerate.",
+          "description": "Fiber-collision completion whose redshift fell back to the host galaxy.",
+          "group": "completed:fiber-collision",
           "label": "host-redshift fallback",
           "short_label": "zhost"
+        },
+        "5": {
+          "color": "#41d6b0",
+          "description": "Synthetic point filling a masked imaging hole (reserved; not currently produced).",
+          "group": "inpainted:mask-hole",
+          "label": "mask-hole inpaint",
+          "short_label": "inpaint"
         }
       },
       "id": "provenance",
@@ -212,7 +224,7 @@
     "method_extension_point": "methods",
     "supported": true
   },
-  "generated_utc": "2026-06-19T15:19:06Z",
+  "generated_utc": "2026-06-19T22:45:51Z",
   "generator": "pipeline/build_viewer_bundle.py",
   "methods": [
     {
@@ -491,32 +503,44 @@
     "0": {
       "color": "#d8dde5",
       "description": "Original BOSS CMASS-South galaxy with a measured spectroscopic redshift.",
+      "group": "observed",
       "label": "observed spectroscopy",
       "short_label": "observed"
     },
     "1": {
       "color": "#39b5ff",
       "description": "ECHOES galaxy restored at an imaging-target position affected by the fiber-collision scale.",
+      "group": "completed:fiber-collision",
       "label": "fiber-collision completion",
       "short_label": "collided"
     },
     "2": {
       "color": "#c071ff",
       "description": "ECHOES galaxy restored for a failed spectroscopic redshift.",
+      "group": "completed:redshift-failure",
       "label": "redshift-failure completion",
       "short_label": "zfail"
     },
     "3": {
       "color": "#ffb84d",
-      "description": "ECHOES analog galaxy sampled from the WEIGHT_SYSTOT multiplicity model.",
+      "description": "ECHOES analog galaxy sampled from the WEIGHT_SYSTOT multiplicity model (synthetic inpaint, not a real missing galaxy).",
+      "group": "inpainted:imaging-systematic",
       "label": "imaging-systematic analog",
       "short_label": "systot"
     },
     "4": {
       "color": "#ff6f61",
-      "description": "Fallback redshift assignment used when a missing-galaxy posterior is degenerate.",
+      "description": "Fiber-collision completion whose redshift fell back to the host galaxy.",
+      "group": "completed:fiber-collision",
       "label": "host-redshift fallback",
       "short_label": "zhost"
+    },
+    "5": {
+      "color": "#41d6b0",
+      "description": "Synthetic point filling a masked imaging hole (reserved; not currently produced).",
+      "group": "inpainted:mask-hole",
+      "label": "mask-hole inpaint",
+      "short_label": "inpaint"
     }
   },
   "schema_version": "echoes.viewer.v1"

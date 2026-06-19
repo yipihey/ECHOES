@@ -25,16 +25,20 @@ def test_groups_separate_inpaint_from_completed_and_by_kind():
 
 
 def test_prov_rgba_and_k3d_colours_match_mapping():
-    prov = np.array([PROV["observed"], PROV["collided"], PROV["zfail"], PROV["systot"]])
+    codes = [PROV["observed"], PROV["collided"], PROV["zfail"], PROV["systot"]]
+    prov = np.array(codes)
     rgba = prov_rgba(prov, alpha=0.7)
     assert rgba.shape == (4, 4) and np.allclose(rgba[:, 3], 0.7)
-    # collided is orange-ish (R>G>B); observed teal (G,B > R)
-    assert rgba[1, 0] > rgba[1, 2]
-    assert rgba[0, 1] > rgba[0, 0] and rgba[0, 2] > rgba[0, 0]
+    # rgba reproduces the canonical PROV_COLOR hex for every code (palette-agnostic)
+    for row, code in enumerate(codes):
+        h = PROV_COLOR[code].lstrip("#")
+        want = np.array([int(h[i:i + 2], 16) for i in (0, 2, 4)]) / 255.0
+        assert np.allclose(rgba[row, :3], want, atol=1 / 255)
     k = prov_k3d_colors(prov)
     assert k.dtype == np.uint32
-    # packed 0xRRGGBB equals the hex literal for collided
-    assert int(k[1]) == int(PROV_COLOR[PROV["collided"]].lstrip("#"), 16)
+    # packed 0xRRGGBB equals the hex literal for each code
+    for j, code in enumerate(codes):
+        assert int(k[j]) == int(PROV_COLOR[code].lstrip("#"), 16)
 
 
 def test_group_of_vectorised():

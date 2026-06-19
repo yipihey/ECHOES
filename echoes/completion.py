@@ -278,15 +278,45 @@ PROV_GROUP = {
     PROV["systot"]:   "inpainted:imaging-systematic",
     PROV["inpaint"]:  "inpainted:mask-hole",
 }
-# display colours (dark-background visualizer); observed dim, completions bright.
+# display colours (dark-background visualizer / WebGPU viewer). Canonical palette
+# shared by the interactive viewer (pipeline/build_viewer_bundle.py) and the static
+# tool (tools/viz_provenance.py) — one source of truth, no per-front-end drift.
 PROV_COLOR = {
-    PROV["observed"]: "#1f6f78",   # dim teal — the spec-z base
-    PROV["collided"]: "#ff7a2d",   # orange  — fiber-collision completion
-    PROV["zhost"]:    "#ffb27a",   # light orange — fiber-collision (host-z fallback)
-    PROV["zfail"]:    "#ffe14d",   # yellow  — redshift-failure completion
-    PROV["systot"]:   "#39e58c",   # green   — imaging-systematic inpaint
-    PROV["inpaint"]:  "#9b5de5",   # purple  — mask-hole inpaint
+    PROV["observed"]: "#d8dde5",   # light grey — the spec-z base
+    PROV["collided"]: "#39b5ff",   # blue   — fiber-collision completion
+    PROV["zfail"]:    "#c071ff",   # purple — redshift-failure completion
+    PROV["systot"]:   "#ffb84d",   # orange — imaging-systematic inpaint
+    PROV["zhost"]:    "#ff6f61",   # red    — fiber-collision (host-z fallback)
+    PROV["inpaint"]:  "#41d6b0",   # teal   — mask-hole inpaint (reserved)
 }
+# short + long human labels per code (the viewer manifest and any legend use these).
+PROV_LABEL = {
+    PROV["observed"]: ("observed", "observed spectroscopy"),
+    PROV["collided"]: ("collided", "fiber-collision completion"),
+    PROV["zfail"]:    ("zfail", "redshift-failure completion"),
+    PROV["systot"]:   ("systot", "imaging-systematic analog"),
+    PROV["zhost"]:    ("zhost", "host-redshift fallback"),
+    PROV["inpaint"]:  ("inpaint", "mask-hole inpaint"),
+}
+PROV_DESCRIPTION = {
+    PROV["observed"]: "Original BOSS CMASS-South galaxy with a measured spectroscopic redshift.",
+    PROV["collided"]: "ECHOES galaxy restored at an imaging-target position affected by the fiber-collision scale.",
+    PROV["zfail"]:    "ECHOES galaxy restored for a failed spectroscopic redshift.",
+    PROV["systot"]:   "ECHOES analog galaxy sampled from the WEIGHT_SYSTOT multiplicity model (synthetic inpaint, not a real missing galaxy).",
+    PROV["zhost"]:    "Fiber-collision completion whose redshift fell back to the host galaxy.",
+    PROV["inpaint"]:  "Synthetic point filling a masked imaging hole (reserved; not currently produced).",
+}
+
+
+def prov_registry():
+    """Canonical per-code provenance metadata for visualizers / data products:
+    ``{code: {short_label, label, description, color, group}}``. The interactive
+    viewer manifest and the static tool both build from this, so the codes, colours
+    and the inpaint-vs-completed grouping never drift between front-ends."""
+    return {code: {"short_label": PROV_LABEL[code][0], "label": PROV_LABEL[code][1],
+                   "description": PROV_DESCRIPTION[code], "color": PROV_COLOR[code],
+                   "group": PROV_GROUP[code]}
+            for code in sorted(PROV.values())}
 
 
 def _systot_restore_extras(base_ra, base_dec, base_z, src, rng, jitter_arcsec=1.0):
