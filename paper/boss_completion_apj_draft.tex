@@ -529,9 +529,10 @@ local KDE in Equation (\ref{eq:localposterior}) by the corresponding field draw:
   \widehat{p}_{\rm col}(z\mid{\bf x}_i)\,q_i(z).
   \label{eq:graphgpz}
 \end{equation}
-All missing galaxies in realization $s$ share the same density-field estimate
-and the same correlated prior draw, so their redshift assignments are
-correlated.  We emphasize that this engine is a fast, robust field-level
+All missing galaxies in realization $s$ share the same density-field estimate, so
+their redshift assignments are correlated through the smooth shared field; the
+stored light-cone noise term is uncorrelated between voxels.  We emphasize that
+this engine is a fast, robust field-level
 \emph{estimate} (an FKP kernel field with a coverage-scaled noise ensemble), not
 an exact Gaussian-process conditional posterior; it is the optional complement to
 the default KNN-field route, which backs the released product.
@@ -725,6 +726,19 @@ versus 2.42, and the skewness is 2.90 versus 2.94.  These tests are not exhausti
 important because a product that only reproduces $w_p$ could still fail for
 nearest-neighbor or cell-count statistics.
 
+Because redshift failures, unlike fiber collisions, receive no close-pair
+anchor, we also check their assignment directly against the real-BOSS-truth
+redshifts, separated by missing kind.  The recovered redshifts are unbiased for
+both populations --- the median assigned-minus-true offset is $-0.0008$ for
+failures and $+0.0001$ for collisions, with comparable scatter
+($\sigma\simeq0.031$ versus $0.028$) and catastrophic-outlier fractions
+($|\Delta z|>0.05$ of $10.7\%$ versus $11.2\%$) --- so the absence of a close-pair
+prior does not degrade the failures relative to collisions.  The per-object
+ensemble is mildly over-confident for both kinds (the rank histogram of the true
+redshift departs from uniform at the $\sim0.1$ Kolmogorov--Smirnov level), a
+small residual that is conservative for ensemble-mean statistics and bounded by
+the statistic-level calibration below.
+
 \begin{figure}
 \centering
 \includegraphics[width=\columnwidth]{completion_highorder.png}
@@ -769,6 +783,31 @@ single observed CMASS-South realization and resamples only the unobserved
 spectroscopic information, it is deliberately narrow and must be \emph{added} to a
 cosmic-variance or simulation covariance, not used in place of it.}
 \label{fig:calibration}
+\end{figure}
+
+The same statement holds beyond the two-point function, which matters because the
+higher-order statistics are more sensitive to the small-scale redshift
+assignment.  Across the Patchy suite we measure, per statistic bin, the
+realization-to-realization completion scatter and the mock-to-mock sample
+variance for the nearest-neighbor CDFs ($k=1,2,4$) and the counts-in-cells
+variance-to-mean ratio.  The median ratio of completion to sample-variance
+scatter is $0.28$ for the kNN-CDF and $0.17$ for counts-in-cells
+(Figure~\ref{fig:calib_highorder}), so the completion remains a sub-dominant,
+addable uncertainty term for the non-Gaussian statistics as well, not only for
+$w_p$.
+
+\begin{figure}
+\centering
+\includegraphics[width=\columnwidth]{calibration_highorder.png}
+\caption{Beyond-two-point completion uncertainty.  For the nearest-neighbor CDFs
+($k=1,2,4$, left) and the counts-in-cells variance-to-mean ratio (right), the
+completion (within-mock) scatter is a small fraction of the mock-to-mock sample
+variance --- median ratios $0.28$ and $0.17$ --- so the completion adds a
+sub-dominant non-Gaussian uncertainty.  The PIT of the truth within the
+completion ensemble is intentionally non-uniform: as for $w_p$, the ensemble
+conditions on the single observed realization and does not regenerate the cosmic
+field, so its band is not meant to bracket the mock truth at the nominal rate.}
+\label{fig:calib_highorder}
 \end{figure}
 
 \subsection{KNN-field versus graphGP}
