@@ -114,29 +114,39 @@ def build_field_context(
                         max_neigh=max_neigh, n_samples=int(max(1, n_samples)))
 
 
-def los_overdensity(field_ctx, ra_m, dec_m, zgrid):
+def los_overdensity(field_ctx, ra_m, dec_m, zgrid, *, n_samples: int = 0, seed: int = 0):
     """Conditional field overdensity ``1+δ_post(n̂, z)`` along each sightline.
 
     For each angular position ``(ra_m, dec_m)``, gathers the observed galaxies in
     the angular cylinder and conditions the GP field at the comoving points along
-    the sightline (``zgrid``). Returns ``(M, n_z)``; rows with too few neighbours
-    are 1 (neutral). The reusable core of the fieldpost engine — used both to
-    sample redshifts and to score the per-galaxy posterior."""
+    the sightline (``zgrid``). With ``n_samples=0`` returns the posterior MEAN
+    ``(M, n_z)``; with ``n_samples>0`` returns Matheron posterior DRAWS
+    ``(M, n_samples, n_z)`` — propagating the field uncertainty so the completion
+    ensemble spread is honest, not just sharp. Rows with too few neighbours are 1
+    (neutral). The reusable core of the fieldpost engine."""
     fc = field_ctx
     nhat_m = _radec_to_nhat(np.asarray(ra_m, np.float64), np.asarray(dec_m, np.float64))
     chi_grid = comoving_mpc_h(np.asarray(zgrid, np.float64))
     tree = fc.tree()
-    M = len(nhat_m)
-    opd = np.ones((M, len(zgrid)), np.float64)
+    M = len(nhat_m); nz = len(zgrid)
+    if n_samples <= 0:
+        out = np.ones((M, nz), np.float64)
+    else:
+        out = np.ones((M, n_samples, nz), np.float64)
     for i in range(M):
         idx = tree.query_ball_point(nhat_m[i], fc.neigh_chord)
         if len(idx) > fc.max_neigh:
             _, idx = tree.query(nhat_m[i], k=fc.max_neigh); idx = np.asarray(idx)
         if len(idx) >= 6:
             x_pred = chi_grid[:, None] * nhat_m[i][None, :]
-            opd[i], _ = conditional_overdensity_los(fc.x_obs[np.asarray(idx)], fc.nbar,
-                                                    x_pred, fc.cov)
-    return opd
+            xo = fc.x_obs[np.asarray(idx)]
+            if n_samples <= 0:
+                out[i], _ = conditional_overdensity_los(xo, fc.nbar, x_pred, fc.cov)
+            else:
+                _, _, S = conditional_overdensity_los(xo, fc.nbar, x_pred, fc.cov,
+                                                      n_samples=n_samples, seed=seed + i)
+                out[i] = S
+    return out
 
 
 def _fieldpost_zmiss(targets, photoz, dz_pool, field_ctx, draw_index,
@@ -157,7 +167,19 @@ def _fieldpost_zmiss(targets, photoz, dz_pool, field_ctx, draw_index,
 
     zgrid = np.linspace(z_o.min(), z_o.max(), 160)
     nbar_z = np.interp(zgrid, fc.z_centres, fc.nz_profile, left=0.0, right=0.0)
-    opd_all = los_overdensity(fc, ra_m, dec_m, zgrid)         # (M, n_z) field 1+δ
+    ns = int(getattr(fc, "n_samples", 1))
+    if ns > 1:
+        # propagate field UNCERTAINTY: realization `draw_index` uses one Matheron
+        # field draw (shared across all missing galaxies, so they are correlated).
+        # The (expensive) draws are computed once and cached on the context, then
+        # reused across the ensemble of completion seeds.
+        cache = getattr(fc, "_los_draw_cache", None)
+        if cache is None or cache[0] != (id(targets), len(ra_m)):
+            draws = los_overdensity(fc, ra_m, dec_m, zgrid, n_samples=ns, seed=12345)
+            fc._los_draw_cache = ((id(targets), len(ra_m)), draws)
+        opd_all = fc._los_draw_cache[1][:, draw_index % ns, :]
+    else:
+        opd_all = los_overdensity(fc, ra_m, dec_m, zgrid)     # posterior mean (M, n_z)
     bw_p = 0.02
     M = len(ra_m)
     z_miss = np.empty(M); fb = np.zeros(M, bool)
