@@ -74,10 +74,15 @@ def main():
 
     # per-engine completed ensembles (build the knn2d / graphgp fields once).
     ckw = {}
-    if "knn2d" in modes:
+    if "knn2d" in modes or "knn2d_cdf" in modes:
         from echoes.knn2d_field import build_knn2d_field
+    if "knn2d" in modes:
         ckw["knn2d"] = {"knn2d_field": build_knn2d_field(
             obs, seed=0, verbose=True, sel_map=cat.sel_map, nside=cat.nside)}
+    if "knn2d_cdf" in modes:
+        ckw["knn2d_cdf"] = {"knn2d_field": build_knn2d_field(
+            obs, seed=0, verbose=True, sel_map=cat.sel_map, nside=cat.nside,
+            weight="cdf")}
     if "graphgp" in modes:
         from echoes.graphgp_field import sample_posterior_density_field
         ckw["graphgp"] = {"gp_field": sample_posterior_density_field(
@@ -142,7 +147,7 @@ def main():
 
     # ----- figure: kNN-CDF (truth vs engines) + CIC PDF overlay -----
     emk = {"field": ("#3a6ea8", "o"), "knn2d": ("#c0392b", "^"),
-           "graphgp": ("#2e8b57", "d")}
+           "knn2d_cdf": ("#e8853a", "s"), "graphgp": ("#2e8b57", "d")}
     fig, ax = plt.subplots(1, 2, figsize=(12.5, 4.7))
     a = ax[0]
     for k in ks:

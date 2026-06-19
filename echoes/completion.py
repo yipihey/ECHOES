@@ -506,6 +506,20 @@ def complete_catalog_photoz(
         draw_index = seed % max(1, getattr(knn2d_field, "n_samples", 1))
         z_miss, zhost_fallback = _knn2d_zmiss(targets, photoz, dz_pool, knn2d_field,
                                               draw_index, z_o, z_host, miss_kind, rng)
+    elif z_mode == "knn2d_cdf":
+        # EXPERIMENTAL (full-distribution variant of 'knn2d'): the per-sightline
+        # LOS weight is the expected number of MISSING galaxies from the
+        # Banerjee-Abel counts-in-cells PMF deconvolution, p(z) ∝ w(n̂,z), rather
+        # than the first-moment DD/RD density — targeting recovery of the true
+        # CIC / kNN-CDF (non-Gaussian), not just the mean. Builds (or reuses) a
+        # knn2d_field with weight='cdf'.
+        from .knn2d_field import build_knn2d_field, _knn2d_zmiss
+        if knn2d_field is None:
+            kw = dict(knn2d_kwargs or {}); kw.setdefault("weight", "cdf")
+            knn2d_field = build_knn2d_field(catalog, seed=seed, **kw)
+        draw_index = seed % max(1, getattr(knn2d_field, "n_samples", 1))
+        z_miss, zhost_fallback = _knn2d_zmiss(targets, photoz, dz_pool, knn2d_field,
+                                              draw_index, z_o, z_host, miss_kind, rng)
     else:
         # 'photoz': per-object redshift from p(z|colours) × close-pair prior (more
         # realistic per-object z, but LOS-smeared — degrades 3-D redshift-space clustering).

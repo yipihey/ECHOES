@@ -122,3 +122,48 @@ def test_completion_knn2d_schema():
     assert np.isfinite(zc).all()
     assert (zc.min() >= Z_LO - 0.05) and (zc.max() <= Z_HI + 0.05)
     assert set(np.unique(out["prov"])).issubset(set(PROV.values()))
+
+
+def test_knn2d_cdf_field_and_completion():
+    """The full-distribution 'cdf' weight builds a normalised CIC PMF + intensity
+    table and the z_mode='knn2d_cdf' branch returns the documented schema."""
+    from echoes.completion import complete_catalog_photoz, PROV
+    from echoes.knn2d_field import (build_knn2d_field, _per_sightline_dd,
+                                    _knn2d_cdf_intensity)
+    ra, dec, z = _uniform_patch(15000)
+    cat = types.SimpleNamespace(ra_data=ra, dec_data=dec, z_data=z,
+                                w_sys_data=None, w_cp_data=None, w_noz_data=None)
+    sel = _sel_map()
+    field = build_knn2d_field(cat, sel_map=sel, nside=NSIDE, weight="cdf",
+                              aperture_deg=0.6, theta_edges_deg=np.geomspace(0.05, 1.0, 6),
+                              n_z_n=24, nside_lookup=256, k_max_cic=15,
+                              completeness=0.9, seed=0)
+    assert field.weight == "cdf"
+    assert field.cic_pmf_ap.shape == (24, 16)
+    assert field.cic_intensity_table.shape == (24, 16)
+    # each shell's PMF integrates to ~1; the missing-intensity table is non-negative.
+    assert np.allclose(field.cic_pmf_ap.sum(1), 1.0, atol=1e-6)
+    assert (field.cic_intensity_table >= 0).all()
+    # uniform (Poisson) field: per-sightline intensity is positive and structureless.
+    rq, dq, _ = _uniform_patch(120, seed=7)
+    inside = (rq > RA_LO + 1) & (rq < RA_HI - 1) & (dq > DEC_LO + 1) & (dq < DEC_HI - 1)
+    w = _knn2d_cdf_intensity(_per_sightline_dd(field, rq[inside], dq[inside], n_threads=1), field)
+    assert np.isfinite(w).all() and (w >= 0).all() and w.max() > 0
+
+    rng = np.random.default_rng(3); M = 200
+    ra_m, dec_m, _ = _uniform_patch(M, seed=9)
+    targets = types.SimpleNamespace(
+        ra=ra_m, dec=dec_m, N=M, host_index=np.full(M, -1),
+        miss_kind=np.array(["zfail"] * M),
+        colors=np.zeros((M, 4)), mags=np.zeros((M, 5)))
+
+    class _PZ:
+        def posterior(self, feat):
+            n = len(feat)
+            return np.tile(np.linspace(Z_LO, Z_HI, 16), (n, 1)), np.ones((n, 16))
+
+    out = complete_catalog_photoz(cat, targets, _PZ(), seed=0, z_mode="knn2d_cdf",
+                                  knn2d_field=field, dz_pool=np.array([0.0, 0.001, -0.001]))
+    assert out["N"] == len(out["z"])
+    zc = np.asarray(out["z"])
+    assert np.isfinite(zc).all() and (zc.min() >= Z_LO - 0.05) and (zc.max() <= Z_HI + 0.05)

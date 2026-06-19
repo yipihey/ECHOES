@@ -109,6 +109,11 @@ class KNN2DFieldResult:
     n_obs: int
     n_samples: int = 1
     backend: str = "mc"
+    # --- experimental full-distribution ('cdf') weighting (Banerjee-Abel CIC) ---
+    weight: str = "mean"
+    completeness: float = 0.93
+    cic_pmf_ap: Optional[np.ndarray] = None           # (n_z_n, k_max_cic+1) measured CIC PMF at the aperture
+    cic_intensity_table: Optional[np.ndarray] = None  # (n_z_n, k_max_cic+1) E[N_missing | observed count]
 
     @property
     def n_theta(self) -> int:
@@ -223,6 +228,62 @@ def _one_plus_delta(dd_cum, field):
     return opd
 
 
+def _cic_intensity_table(cic_pmf_ap, completeness):
+    """Expected number of *missing* galaxies in a cap given its observed count,
+    from the measured CIC PMF — the full-distribution ('cdf') weight.
+
+    ``cic_pmf_ap[j, N]`` is P(N true-ish galaxies in the aperture cap at z-shell
+    j), the measured Banerjee–Abel counts-in-cells PMF (k=0..K). Under a uniform
+    completeness ``c`` (each true galaxy observed w.p. c), a cap whose observed
+    count is ``n`` has a posterior over its true count
+
+        P(N_true=N | n) ∝ P(N) · C(N, n) (1-c)^{N-n},   N ≥ n
+
+    and the expected number of missing galaxies there is
+    ``W[j, n] = max(E[N_true | n] - n, 0)``. This is the line-of-sight intensity
+    of *missing* galaxies — exactly what p(z | missing) should be proportional to.
+
+    The mechanism that the first-moment DD/RD weight lacks: the PMF's clustered
+    tail makes E[N_true|n] grow super-linearly with n (sharpening clusters), while
+    a high P(N=0) in voids keeps E[N_true|0] small (deepening voids) — so the
+    completed catalog restores the non-Gaussian CIC/kNN-CDF, not just the mean.
+    Returns ``W`` of shape ``(n_z_n, K+1)``.
+    """
+    from scipy.special import comb
+    P = np.asarray(cic_pmf_ap, np.float64)                    # (n_z, K+1)
+    n_z, Kp1 = P.shape
+    K = Kp1 - 1
+    c = float(np.clip(completeness, 1e-3, 0.999))
+    Ngrid = np.arange(Kp1)
+    # thinning likelihood L[N, n] = C(N, n) (1-c)^(N-n) for N>=n, else 0.
+    L = np.zeros((Kp1, Kp1))
+    for N in range(Kp1):
+        for n in range(N + 1):
+            L[N, n] = comb(N, n) * (1.0 - c) ** (N - n)
+    post = P[:, :, None] * L[None, :, :]                      # (n_z, N, n)
+    den = post.sum(axis=1)                                    # (n_z, n)
+    num = (Ngrid[None, :, None] * post).sum(axis=1)           # (n_z, n)
+    E_true = np.where(den > 0, num / np.where(den > 0, den, 1.0), 0.0)
+    W = np.maximum(E_true - Ngrid[None, :], 0.0)              # (n_z, n)
+    return W
+
+
+def _knn2d_cdf_intensity(dd_cum, field):
+    """Per-sightline line-of-sight missing-galaxy intensity ``w(n̂, z)`` from the
+    CIC deconvolution table — the full-distribution ('cdf') replacement for the
+    first-moment ``(1+δ)·n̄``. ``dd_cum`` is ``(M, n_theta, n_z_n)``; returns
+    ``(M, n_z_n)``. Smoothed mildly in z for shell-noise control."""
+    t = field.aperture_index
+    K = field.cic_intensity_table.shape[1] - 1
+    n_obs = np.clip(np.rint(dd_cum[:, t, :]), 0, K).astype(np.int64)   # (M, n_z_n)
+    W = field.cic_intensity_table                              # (n_z_n, K+1)
+    nz = W.shape[0]
+    rows = np.broadcast_to(np.arange(nz), n_obs.shape)
+    w = W[rows, n_obs]                                         # (M, n_z_n)
+    S = _z_smoothing_matrix(field.z_n_centres, max(field.bw_z, 1e-6))
+    return w @ S.T
+
+
 def build_knn2d_field(
     catalog,
     *,
@@ -238,6 +299,9 @@ def build_knn2d_field(
     nside_lookup: int = 512,
     sel_map: Optional[np.ndarray] = None,
     nside: Optional[int] = None,
+    weight: str = "mean",
+    k_max_cic: int = 25,
+    completeness: float = 0.93,
     n_samples: int = 1,
     seed: int = 0,
     verbose: bool = False,
@@ -269,6 +333,17 @@ def build_knn2d_field(
     bw_z
         Gaussian z-bandwidth for smoothing DD/RD before the ratio (default
         0.008, between the KNN-KDE field bandwidth 0.004 and the photo-z 0.02).
+    weight
+        ``'mean'`` (default): the first-moment Davis–Peebles density
+        ``(1+δ)=DD/RD``. ``'cdf'`` (experimental): the full Banerjee–Abel
+        counts-in-cells distribution — the per-sightline LOS weight becomes the
+        expected number of *missing* galaxies given the observed local cap count
+        and the measured CIC PMF (deconvolving the thinned count distribution),
+        which targets restoring the true CIC/kNN-CDF, not just the mean. Drives
+        ``z_mode='knn2d_cdf'``.
+    k_max_cic, completeness
+        For ``weight='cdf'``: the kNN ladder depth of the measured CIC PMF and
+        the (global) survey completeness ``c`` used in the thinning likelihood.
     rd_source
         ``'mc'`` (default): RD from ``n_rd_factor·N_data`` random footprint
         queries vs the observed galaxies (captures the true window). ``'analytic'``:
@@ -320,6 +395,12 @@ def build_knn2d_field(
             "with a .sel_map attribute.")
     sel_map = np.asarray(sel_map)
     rng = np.random.default_rng(seed)
+    cic_pmf_ap = None
+    cic_intensity_table = None
+    if weight == "cdf" and rd_source != "mc":
+        # the CIC PMF needs the Monte-Carlo random-query count distribution; the
+        # analytic separable form gives only the mean.
+        rd_source = "mc"
     if rd_source == "analytic":
         from .knn.analytic_rr import analytic_rr_cube
         z_q_edges = np.array([z_range[0], z_range[1]])
@@ -331,19 +412,25 @@ def build_knn2d_field(
             n_random_total=n_obs, nside=nside)
         rd_cum = res.sum_n[:, 0, :]                            # (n_theta, n_z_n)
     else:                                                      # 'mc'
-        from .knn import joint_knn_cdf
+        from .knn import joint_knn_cdf, derived
         from .randoms import make_random_from_selection_function
         n_rd = int(n_rd_factor * n_obs)
         ra_r, dec_r, z_r = make_random_from_selection_function(
             sel_map=sel_map, n_random=n_rd, z_data=z_o, nside=nside, rng=rng)
         z_q_edges = np.array([z_range[0], z_range[1]])
+        kmax_rd = int(k_max_cic) if weight == "cdf" else 0
         res = joint_knn_cdf(
             np.asarray(ra_r, np.float64), np.asarray(dec_r, np.float64),
             np.asarray(z_r, np.float64), ra_o, dec_o, z_o,
-            theta_radii_rad, z_q_edges, z_n_edges, k_max=0,
+            theta_radii_rad, z_q_edges, z_n_edges, k_max=kmax_rd,
             flavor="RD", nside_lookup=nside_lookup)
-        from .knn import derived
         rd_cum = derived.mean_count(res)[:, 0, :]              # (n_theta, n_z_n)
+        if weight == "cdf":
+            # CIC PMF at the aperture: P(N=k | theta_aperture, z) over random
+            # footprint queries = the data counts-in-cells distribution.
+            pmf = derived.cic_pmf(res)                         # (n_theta, 1, n_z_n, K+1)
+            cic_pmf_ap = np.ascontiguousarray(pmf[aperture_index, 0])  # (n_z_n, K+1)
+            cic_intensity_table = _cic_intensity_table(cic_pmf_ap, completeness)
 
     if verbose:
         S = _z_smoothing_matrix(z_n_centres, bw_z)
@@ -351,7 +438,7 @@ def build_knn2d_field(
                   else rd_cum[aperture_index]) @ S.T
         cov = float((rdr_sm >= min_expected).mean())
         print(f"[knn2d-field] N_obs={n_obs:,} theta={len(theta_radii_rad)} "
-              f"z_n={n_z_n} rd_source={rd_source} reduce={reduce} "
+              f"z_n={n_z_n} rd_source={rd_source} reduce={reduce} weight={weight} "
               f"aperture={aperture_deg}deg bw_z={bw_z} "
               f"<cap RD>={float(np.median(rdr_sm)):.1f} well-covered shells="
               f"{cov*100:.0f}%")
@@ -364,7 +451,9 @@ def build_knn2d_field(
         min_expected=float(min_expected), nside_lookup=nside_lookup,
         pix_starts=pix_starts, theta_g_sorted=tg_s, phi_g_sorted=pg_s,
         z_g_sorted=zg_s, w_g_sorted=wg_s, n_obs=n_obs,
-        n_samples=int(max(1, n_samples)), backend=rd_source)
+        n_samples=int(max(1, n_samples)), backend=rd_source,
+        weight=weight, completeness=float(completeness),
+        cic_pmf_ap=cic_pmf_ap, cic_intensity_table=cic_intensity_table)
 
 
 def _knn2d_zmiss(targets, photoz, dz_pool, knn2d_field, draw_index,
@@ -376,7 +465,11 @@ def _knn2d_zmiss(targets, photoz, dz_pool, knn2d_field, draw_index,
 
     i.e. ``z_mode='field'`` with the Yuan–Abel–Wechsler RD/DD local overdensity
     replacing the KNN-KDE local density. Mirrors :func:`completion._graphgp_zmiss`
-    exactly. Returns ``(z_miss, zhost_fallback)``.
+    exactly. With ``field.weight == 'cdf'`` the per-sightline weight is instead the
+    expected number of missing galaxies from the CIC deconvolution (full
+    Banerjee–Abel distribution) — ``pf_cdf(z) = w(n̂, z)`` — with a fall-back to
+    the first-moment ``(1+δ)·n̄`` on shells the survey does not cover well.
+    Returns ``(z_miss, zhost_fallback)``.
     """
     from .photoz import photoz_features
     from .completion import _clpair_density
@@ -395,17 +488,39 @@ def _knn2d_zmiss(targets, photoz, dz_pool, knn2d_field, draw_index,
                        np.histogram(z_o, bins=field.z_n_edges)[0].astype(float),
                        left=0.0, right=0.0)
 
-    # per-sightline DD profile -> local overdensity (1+δ)(n̂, z_n).
+    # per-sightline DD profile.
     dd_cum = _per_sightline_dd(field, ra_m, dec_m)             # (M, n_theta, n_z_n)
-    opd_zn = _one_plus_delta(dd_cum, field)                   # (M, n_z_n)
+    opd_zn = _one_plus_delta(dd_cum, field)                   # (M, n_z_n) first-moment
+    nbar_zn = np.histogram(z_o, bins=field.z_n_edges)[0].astype(float)  # n̄ on shells
+    use_cdf = (field.weight == "cdf" and field.cic_intensity_table is not None)
+    if use_cdf:
+        w_zn = _knn2d_cdf_intensity(dd_cum, field)            # (M, n_z_n) missing intensity
+        # well-covered shells (CIC PMF reliable); elsewhere fall back to mean-field,
+        # rescaled to a common LOS integral so there is no boundary discontinuity.
+        rdr = (field.rd_cum.sum(0) if field.reduce == "ladder"
+               else field.rd_cum[field.aperture_index])
+        S = _z_smoothing_matrix(zc, field.bw_z)
+        covered = (S @ rdr) >= field.min_expected             # (n_z_n,)
 
     bw_p = 0.02
     M = len(ra_m)
     z_miss = np.empty(M)
     fb = np.zeros(M, bool)
     for i in range(M):
-        # kNN local density × n̄(z) along this sightline.
+        # kNN local density × n̄(z) along this sightline (first-moment weight).
         pf = np.interp(zgrid, zc, opd_zn[i], left=0.0, right=0.0) * nbar_z
+        if use_cdf:
+            # full-distribution weight: expected missing-galaxy intensity from the
+            # CIC deconvolution where well-covered, mean-field elsewhere (rescaled
+            # to the same covered-region integral for continuity). Both on the
+            # shell grid zc, then interpolated to zgrid.
+            mf_zn = opd_zn[i] * nbar_zn                        # first-moment intensity
+            if covered.any():
+                sc = w_zn[i][covered].sum() / max(mf_zn[covered].sum(), 1e-12)
+            else:
+                sc = 1.0
+            blend = np.where(covered, w_zn[i], mf_zn * sc)
+            pf = np.interp(zgrid, zc, blend, left=0.0, right=0.0)
         w = wk[i]; ok = np.isfinite(w) & (w > 0)
         pp = ((w[ok][None, :] * np.exp(-0.5 * ((zgrid[:, None]
               - zk[i][ok][None, :]) / bw_p) ** 2)).sum(1)

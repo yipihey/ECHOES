@@ -61,9 +61,9 @@ def main():
     p.add_argument("--patchy-randoms", default="data/boss/mocks/Patchy-Mocks-Randoms-DR12SGC-COMPSAM_V6C_x10.dat")
     p.add_argument("--out", default="output/mock_truth_recovery.png")
     p.add_argument("--z-mode", default="field",
-                   choices=["field", "knn2d", "graphgp", "nn", "photoz"],
-                   help="redshift-completion engine (default 'field'; 'knn2d' is the "
-                        "experimental 2D-kNN engine)")
+                   choices=["field", "knn2d", "knn2d_cdf", "graphgp", "nn", "photoz"],
+                   help="redshift-completion engine (default 'field'; 'knn2d'/'knn2d_cdf' "
+                        "are the experimental 2D-kNN mean/full-distribution engines)")
     args = p.parse_args()
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
 
@@ -106,12 +106,14 @@ def main():
 
     # ---- completion ensemble ----
     ckw = {}
-    if args.z_mode == "knn2d":
+    if args.z_mode in ("knn2d", "knn2d_cdf"):
         # build the experimental 2D-kNN field once (RD window from the survey
         # footprint; the mock-observed subset shares it) and reuse across seeds.
+        # 'knn2d_cdf' uses the full Banerjee-Abel CIC distribution (weight='cdf').
         from echoes.knn2d_field import build_knn2d_field
         ckw["knn2d_field"] = build_knn2d_field(
-            obs, seed=0, verbose=True, sel_map=cat.sel_map, nside=cat.nside)
+            obs, seed=0, verbose=True, sel_map=cat.sel_map, nside=cat.nside,
+            weight=("cdf" if args.z_mode == "knn2d_cdf" else "mean"))
     cats = [complete_catalog_photoz(obs, tg, pz, seed=s, dz_pool=dz,
                                     z_mode=args.z_mode, **ckw)
             for s in range(args.n_real)]
