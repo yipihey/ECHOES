@@ -54,9 +54,10 @@ product against truth-known completions and MultiDark-Patchy mocks, finding
 that projected clustering is recovered to the 1--2\% level over
 $0.5<r_p<40\,h^{-1}{\rm Mpc}$, while the posterior completion uncertainty in
 $w_p(r_p)$ is only 0.17--0.44\% per bin, below the sample-variance scale of the
-BOSS South Galactic Cap.  We also describe a fully complementary graphGP route:
-a conditional anisotropic Gaussian-process posterior over the galaxy density
-field, sampled by Matheron's rule on a sparse graph and evaluated along each
+BOSS South Galactic Cap.  We also describe a complementary field-level route:
+a kernel (FKP) estimate of the galaxy density field, built with a covariance
+tabulated from the measured correlation function and sampled as a
+coverage-scaled ensemble on a sparse neighbor graph, evaluated along each
 missing galaxy's line of sight.  The resulting catalogs are intended to let
 analysts run two-point, higher-order, marked, nearest-neighbor, topological,
 field-level, or simulation-based statistics directly on completed catalogs while
@@ -294,9 +295,12 @@ per-object multipliers.}
 likelihood in the redshift posterior, validated on a held-out sample of
 good-redshift CMASS galaxies.  \emph{Left:} posterior-median photo-$z$ versus
 spectroscopic redshift ($\sigma_{\rm NMAD}\simeq0.019$).  \emph{Middle:} the
-probability-integral-transform histogram --- the rank of each true redshift
-within its own posterior --- which is flat (mean $\simeq0.5$), so the posterior
-is calibrated and can be sampled faithfully.  \emph{Right:} a single posterior
+probability-integral-transform (PIT) histogram --- the rank of each true
+redshift within its own posterior --- which is statistically uniform, so the
+posterior is calibrated and can be sampled faithfully.  We test uniformity with
+a Kolmogorov--Smirnov and a binned $\chi^2$ statistic against the flat
+distribution rather than the PIT mean alone, since a U-shaped (over-confident)
+PIT can also have mean $0.5$.  \emph{Right:} a single posterior
 draw per object reproduces the held-out $n(z)$.  The photo-$z$ enters the
 completion only as the likelihood factor
 $\widehat{p}_{\rm col}(z\mid{\bf x})$, never as a standalone redshift.}
@@ -347,19 +351,43 @@ local-density prior from assigning obviously incompatible redshifts.
 The BOSS imaging-systematic correction \texttt{WEIGHT\_SYSTOT} is a smooth
 density correction, not a statement that a particular nearby target failed to
 receive a fiber.  We therefore do not convert it into exact duplicate galaxies.
-For every observed or spectroscopically restored base object, the sampler adds
+The completion is \emph{mean-preserving}: the expected number of output objects
+per base object equals $w_{\rm systot}$.  For every observed or spectroscopically
+restored base object, the sampler adds
 \begin{equation}
   n_{\rm extra} =
   \left\lfloor \max(w_{\rm systot}-1,0)+U \right\rfloor,
   \qquad U\sim{\cal U}(0,1),
 \end{equation}
 local analogs at the same source position with a $1''$ Gaussian angular jitter
-and the same redshift.  This preserves resolved angular and three-dimensional
-clustering while avoiding a zero-separation spike that would corrupt
-nearest-neighbor or counts-in-cells statistics.  The default implementation
-keeps all real detections; it restores density deficits implied by
-$w_{\rm systot}>1$ rather than thinning observed galaxies in regions with
-$w_{\rm systot}<1$.
+and the same redshift, and \emph{independently keeps the base object itself with
+probability} $\min(w_{\rm systot},1)$.  The analog step restores the density
+deficit where $w_{\rm systot}>1$; the keep step thins the regions with
+$w_{\rm systot}<1$, which for CMASS-South are the majority (median
+$w_{\rm systot}=0.98$, $64\%$ below unity).  Restoring the deficit without
+thinning the excess would reproduce a $\max(w_{\rm systot},1)$ weighting and
+leave a residual degree-scale imaging-systematic gradient --- in CMASS-South the
+$w_{\rm systot}<1$ regions would be over-dense by up to $\sim8\%$
+(Figure~\ref{fig:systot}); the thinning removes it to $\lesssim0.2\%$.  The jitter
+preserves resolved angular and three-dimensional clustering while avoiding a
+zero-separation spike that would corrupt nearest-neighbor or counts-in-cells
+statistics.  The keep/drop is stochastic per realization, so the
+$w_{\rm systot}$-weighted density is reproduced in the ensemble mean and the
+small per-draw thinning shot noise enters the calibrated completion spread.
+
+\begin{figure}
+\centering
+\includegraphics[width=\columnwidth]{systot_gradient.png}
+\caption{Mean-preserving imaging-systematic completion.  The completed
+number density per $w_{\rm systot}$ bin, divided by the
+$w_{\rm systot}$-weighted target density (isolating the systematic step on real
+CMASS-South).  The mean-preserving completion (blue) reproduces the weighted
+density to $\lesssim0.2\%$ across the full range, whereas restoring the deficit
+without thinning the $w_{\rm systot}<1$ regions (red) leaves them over-dense by
+up to $\sim8\%$, a residual degree-scale gradient correlated with the imaging
+systematic.}
+\label{fig:systot}
+\end{figure}
 
 Each output object carries a provenance code: 0 for observed spectroscopy,
 1 for restored fiber-collision target, 2 for restored redshift failure, 3 for
@@ -456,53 +484,57 @@ with covariance tied to the observed two-point function, and that the observed
 galaxies are noisy samples of that field.
 
 Let $\delta({\bf x})$ be the galaxy overdensity in a fiducial comoving
-coordinate system.  The graphGP prior is
+coordinate system.  The clustering scale is set by a kernel
 \begin{equation}
-  \delta({\bf x}) \sim {\cal GP}\left[0,K_\xi(|{\bf x}-{\bf x}'|)\right],
+  K_\xi(r) \;\text{tabulated from}\;
+  {\cal GP}\left[0,K_\xi(|{\bf x}-{\bf x}'|)\right],
   \label{eq:gpprior}
 \end{equation}
-where $K_\xi(r)$ is a tabulated covariance derived from a Landy--Szalay
-measurement of the galaxy correlation function.  The likelihood is a Gaussian
-approximation to an inhomogeneous Poisson process.  At observed galaxy
-locations ${\bf x}_D$, the data vector is
+a covariance derived from a Landy--Szalay measurement of the galaxy correlation
+function, so the smoothing follows the measured two-point clustering rather than
+an imposed bandwidth.  In the regime relevant here the signal-to-noise per
+galaxy is small ($\bar n_i^{-1}\!\gg\!\xi$), and we use the kernel-weighted
+(FKP) density-ratio estimate of the field --- the posterior-mean limit of the
+Gaussian model when the Poisson noise dominates the prior:
 \begin{equation}
-  y_i = \bar n_i^{-1}-1,\qquad
-  N_{ii}=\bar n_i^{-1},
+  1+\delta_{\rm FKP}({\bf x}) =
+  \frac{\sum_i w_i\,K_\xi(|{\bf x}-{\bf x}_i^{D}|)}
+       {\alpha_w \sum_j K_\xi(|{\bf x}-{\bf x}_j^{R}|)},
+  \qquad \alpha_w=\tfrac{\sum_i w_i}{N_R},
+  \label{eq:fkpkde}
 \end{equation}
-where $\bar n_i$ is the local mean density implied by the survey selection.
-The posterior is Gaussian:
-\begin{align}
-  \mu_{\rm post}({\bf x}) &=
-  K({\bf x},{\bf x}_D)\,[K_{DD}+N]^{-1}y_D,\\
-  C_{\rm post}({\bf x},{\bf x}') &=
-  K({\bf x},{\bf x}') -
-  K({\bf x},{\bf x}_D)\,[K_{DD}+N]^{-1}K({\bf x}_D,{\bf x}').
-\end{align}
-
-The implementation samples this posterior by Matheron's rule
-\citep{RybickiPress1992}.  A prior draw $\delta_{\rm prior}$ is generated on a
-sparse neighbor graph using a Vecchia-style approximation
-\citep{Katzfuss2020,Schafer2021}.  The conditional draw is
+normalized to unit mean over the survey, with completeness weights $w_i$ and the
+random catalog ${\bf x}^R$ supplying the angular$\times$radial selection in the
+denominator.  An ensemble of field realizations is then generated by adding a
+coverage-scaled stochastic term,
 \begin{equation}
-  \delta_{\rm post}({\bf x}) =
-  \delta_{\rm prior}({\bf x})
-  + K({\bf x},{\bf x}_D)[K_{DD}+N]^{-1}
-  \left[y_D-\delta_{\rm prior}({\bf x}_D)\right].
-  \label{eq:matheron}
+  \delta^{(s)}({\bf x}) =
+  \delta_{\rm FKP}({\bf x})
+  + s_0\,[1-c({\bf x})]\,\eta^{(s)}({\bf x}),
+  \label{eq:gpensemble}
 \end{equation}
-The expensive solve is amortized over many missing-galaxy redshift draws.  The
-primary stored object is a light-cone-native array
-$1+\delta_{\rm post}$ on redshift shells and HealPIX pixels.  For a missing
-galaxy, graphGP replaces the local KDE in Equation (\ref{eq:localposterior}) by
-the corresponding field draw:
+where $c({\bf x})\in[0,1]$ is the local data proximity, $s_0$ calibrates the
+amplitude to the measured field, and $\eta^{(s)}$ is a prior draw --- generated
+on a sparse Vecchia-style neighbor graph \citep{Katzfuss2020,Schafer2021} so it
+carries the $\xi$-correlation at the data positions.  The spread is therefore
+full-amplitude where the survey is data-poor and suppressed near data, the
+qualitative behavior of a field posterior, without forming the $[K_{DD}+N]^{-1}$
+conditional solve.  The primary stored object is a light-cone-native array
+$1+\delta^{(s)}$ on redshift shells and HealPIX pixels (the stored noise floor is
+uncorrelated between voxels).  For a missing galaxy, this route replaces the
+local KDE in Equation (\ref{eq:localposterior}) by the corresponding field draw:
 \begin{equation}
   p_i(z\mid s) \propto
-  [1+\delta_{\rm post}^{(s)}(\hat{\bf n}_i,z)]\,\bar n(z)\,
+  [1+\delta^{(s)}(\hat{\bf n}_i,z)]\,\bar n(z)\,
   \widehat{p}_{\rm col}(z\mid{\bf x}_i)\,q_i(z).
   \label{eq:graphgpz}
 \end{equation}
-All missing galaxies in realization $s$ share the same density-field draw, so
-their redshift assignments are correlated.
+All missing galaxies in realization $s$ share the same density-field estimate
+and the same correlated prior draw, so their redshift assignments are
+correlated.  We emphasize that this engine is a fast, robust field-level
+\emph{estimate} (an FKP kernel field with a coverage-scaled noise ensemble), not
+an exact Gaussian-process conditional posterior; it is the optional complement to
+the default KNN-field route, which backs the released product.
 
 This model has a fiducial comoving coordinate system internally because a
 three-dimensional covariance needs a distance.  That coordinate system is a
@@ -541,10 +573,21 @@ radial selection.  This system is extremely effective for the published
 two-point program, but for a general statistic the analyst must decide how to
 apply weights, whether the statistic is linear or nonlinear in those weights,
 and how random catalogs should enter.
-Fiber-collision corrections illustrate the point: nearest-neighbor upweighting
-and more refined pairwise or angular correction schemes can be calibrated for
-two-point functions \citep{Guo2012,Mohammad2020}, but they do not automatically
-define how a nonlinear statistic should respond to a missing close pair.
+Fiber-collision corrections illustrate the point.  Nearest-neighbor and angular
+upweighting are calibrated for two-point functions \citep{Guo2012}, but the more
+powerful pairwise-inverse-probability (PIP), or bitwise, weighting of
+\citet{BianchiPercival2017}, validated on BOSS and eBOSS by
+\citet{Mohammad2020}, is in fact \emph{statistic-agnostic}: by reweighting pairs
+with the inverse probability that they are jointly observed across realizations
+of the targeting algorithm, it yields unbiased clustering for a general pair
+counter, not only the two-point function.  ECHOES is complementary rather than a
+replacement: PIP is a pair-level weighting that still requires the analyst to
+express each statistic as a weighted pair (or $n$-tuple) count, whereas ECHOES
+returns explicit equal-weight point catalogs on which any estimator --- pairwise
+or not --- runs directly.  Its distinct contributions are that it also restores
+redshift failures and imaging-systematic density modulations in the same
+completion, and that it stores the result cosmology-free; the fiber-collision
+piece alone is well served by PIP.
 
 SIMBIG is a useful modern comparison point.  It uses BOSS CMASS-South-like cuts
 and a forward-modeling program to connect nonlinear galaxy clustering
@@ -557,6 +600,18 @@ observational interface remains the published BOSS selection and weighting
 system.  Our product is complementary: it provides an ensemble of completed
 data catalogs so the observational correction can be sampled once and then
 reused across many statistics.
+
+The closest precursor in this ``ensemble of completed catalogs'' sense is the
+DESI alternate-realizations (\texttt{altmtl}) program \citep{Lasker2025}, which
+reruns the fiber-assignment algorithm many times to produce an ensemble of
+realizations whose averaged pair counts give unbiased clustering --- effectively
+a Monte-Carlo realization of the PIP probabilities.  ECHOES shares the
+ensemble-of-realizations philosophy but differs in interface and scope: where
+\texttt{altmtl} resamples the \emph{assignment} of a fixed target list (and is
+designed for two-point/PIP estimation), ECHOES resamples the \emph{redshifts and
+positions} of the spectroscopically missing galaxies to yield equal-weight point
+catalogs intended for arbitrary statistics, and additionally folds in
+redshift-failure and imaging-systematic completion.
 
 \subsection{Default KNN-field completion}
 \label{subsec:boss_default}
@@ -949,9 +1004,11 @@ ${\bf x}$.
 \item Measure or tabulate the covariance $K_\xi(r)$ from the observed
 two-point function.
 \item Build a sparse Vecchia neighbor graph over data and prediction points.
-\item Generate a GP prior draw on that graph and condition it with
-Equation (\ref{eq:matheron}) using the Gaussianized Poisson likelihood.
-\item Store $1+\delta_{\rm post}$ on a redshift-shell by HealPIX light cone.
+\item Form the FKP kernel field estimate (Equation~\ref{eq:fkpkde}) at the
+prediction points, and generate a $\xi$-correlated prior draw on the graph.
+\item Combine them into the coverage-scaled ensemble draw
+(Equation~\ref{eq:gpensemble}).
+\item Store $1+\delta^{(s)}$ on a redshift-shell by HealPIX light cone.
 \item For each missing target, evaluate Equation (\ref{eq:graphgpz}) on the
 same redshift grid used by the KNN-field sampler, then draw redshifts from the
 shared field realization.
