@@ -1,6 +1,9 @@
 const MANIFEST_URL = "data/viewer_manifest.json";
 const TWO_PI = Math.PI * 2;
 const FETCH_TIMEOUT_MS = 60000;
+const PLOT_BACKGROUND_CSS = "#ffffff";
+const KERNEL_SPRITE_CACHE_LIMIT = 4096;
+const kernelSpriteCache = new Map();
 
 const els = {};
 const state = {
@@ -29,7 +32,7 @@ const state = {
   settings: {
     coordinateMode: "comoving",
     projection: "3d",
-    colorBy: "provenance",
+    colorBy: "z",
     sizeBy: "source",
     showObserved: true,
     showEchoes: true,
@@ -760,11 +763,11 @@ function hexToRgb(hex) {
 }
 
 function gradient(t) {
-  const a = hexToRgb("#39b5ff");
-  const b = hexToRgb("#41d6b0");
-  const c = hexToRgb("#ffb84d");
-  if (t < 0.5) return mixColor(a, b, t * 2);
-  return mixColor(b, c, (t - 0.5) * 2);
+  const a = hexToRgb("#d7dbe2");
+  const b = hexToRgb("#050505");
+  const c = hexToRgb("#d8a21c");
+  if (t < 0.55) return mixColor(a, b, t / 0.55);
+  return mixColor(b, c, (t - 0.55) / 0.45);
 }
 
 function mixColor(a, b, t) {
@@ -787,6 +790,24 @@ function computeBounds(positions) {
   const extent = [maxX - minX, maxY - minY, maxZ - minZ];
   const radius = Math.max(extent[0], extent[1], extent[2], 1) * 0.72;
   return { min: [minX, minY, minZ], max: [maxX, maxY, maxZ], center, extent, radius };
+}
+
+function billboardPixelScale() {
+  return state.settings.pointScale * zoomBillboardScale();
+}
+
+function zoomBillboardScale() {
+  if (!state.bounds) return 1;
+  if (state.settings.projection === "3d") {
+    const fitDistance = Math.max(1, state.bounds.radius * 3.0);
+    return clamp(fitDistance / Math.max(1, state.camera.distance), 0.35, 8);
+  }
+  const fitScale = Math.max(0.1, state.bounds.radius * 1.35);
+  return clamp(fitScale / Math.max(0.1, state.camera.orthoScale), 0.35, 8);
+}
+
+function clamp(value, lo, hi) {
+  return Math.max(lo, Math.min(hi, value));
 }
 
 function fitCamera() {
@@ -851,11 +872,11 @@ function makeGridLines() {
   const positions = [];
   const colors = [];
   const opacity = state.settings.gridOpacity;
-  const gridColor = [0.78, 0.83, 0.88, 0.22 * opacity];
+  const gridColor = [0.34, 0.37, 0.41, 0.22 * opacity];
   const axisColors = {
-    x: [0.25, 0.84, 0.69, 0.85 * opacity],
-    y: [1.0, 0.72, 0.30, 0.85 * opacity],
-    z: [0.22, 0.71, 1.0, 0.85 * opacity],
+    x: [0.10, 0.10, 0.10, 0.82 * opacity],
+    y: [0.78, 0.55, 0.10, 0.86 * opacity],
+    z: [0.42, 0.42, 0.42, 0.82 * opacity],
   };
   const ticksX = ticks(b.min[0], b.max[0], 7);
   const ticksY = ticks(b.min[1], b.max[1], 7);
@@ -918,7 +939,7 @@ function render() {
   uniform.set(viewProj, 0);
   uniform[16] = els.scene.width;
   uniform[17] = els.scene.height;
-  uniform[18] = state.settings.pointScale;
+  uniform[18] = billboardPixelScale();
   uniform[19] = 0;
   device.queue.writeBuffer(gpu.cameraBuffer, 0, uniform);
 
@@ -926,7 +947,7 @@ function render() {
   const pass = encoder.beginRenderPass({
     colorAttachments: [{
       view: gpu.context.getCurrentTexture().createView(),
-      clearValue: { r: 0.035, g: 0.043, b: 0.051, a: 1 },
+      clearValue: { r: 1, g: 1, b: 1, a: 1 },
       loadOp: "clear",
       storeOp: "store",
     }],
@@ -961,7 +982,7 @@ function renderCanvas2d() {
   if (!ctx || !state.catalog) return;
   const ratio = Math.max(1, els.scene.width / Math.max(els.scene.clientWidth, 1));
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = "#090b0d";
+  ctx.fillStyle = PLOT_BACKGROUND_CSS;
   ctx.fillRect(0, 0, els.scene.width, els.scene.height);
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 
@@ -970,17 +991,70 @@ function renderCanvas2d() {
   if (state.settings.showGrid && state.bounds) drawCanvasGrid(ctx, viewProj);
 
   const { positions, colors, count } = state.catalog;
+  const scale = billboardPixelScale();
   for (let i = 0; i < count; i++) {
     const p = i * 4;
     const s = projectToScreen([positions[p], positions[p + 1], positions[p + 2]], viewProj);
     if (!s) continue;
     const c = colors.subarray(p, p + 4);
     if (c[3] <= 0) continue;
-    const size = Math.max(1, positions[p + 3] * state.settings.pointScale);
-    ctx.fillStyle = rgbaCss(c);
-    ctx.fillRect(s[0] - size * 0.5, s[1] - size * 0.5, size, size);
+    const radius = Math.max(0.75, positions[p + 3] * scale);
+    drawKernelBillboard(ctx, s[0], s[1], radius, c);
   }
   updateAxisLabels();
+}
+
+function drawKernelBillboard(ctx, x, y, radius, color) {
+  const sprite = kernelSprite(color, radius);
+  const size = sprite.width;
+  ctx.drawImage(sprite, x - size * 0.5, y - size * 0.5, size, size);
+}
+
+function kernelSprite(color, radius) {
+  const r = Math.max(1, Math.min(96, Math.round(radius)));
+  const red = quantizeByte(color[0] * 255, 8);
+  const green = quantizeByte(color[1] * 255, 8);
+  const blue = quantizeByte(color[2] * 255, 8);
+  const alpha = quantizeByte(color[3] * 255, 16);
+  const key = `${r}:${red}:${green}:${blue}:${alpha}`;
+  const cached = kernelSpriteCache.get(key);
+  if (cached) return cached;
+  if (kernelSpriteCache.size > KERNEL_SPRITE_CACHE_LIMIT) kernelSpriteCache.clear();
+
+  const size = r * 2 + 2;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const image = ctx.createImageData(size, size);
+  const center = (size - 1) * 0.5;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = (x - center) / r;
+      const dy = (y - center) / r;
+      const k = cubicSplineKernel(Math.hypot(dx, dy));
+      const i = (y * size + x) * 4;
+      image.data[i] = red;
+      image.data[i + 1] = green;
+      image.data[i + 2] = blue;
+      image.data[i + 3] = Math.round(alpha * k);
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  kernelSpriteCache.set(key, canvas);
+  return canvas;
+}
+
+function cubicSplineKernel(radius) {
+  const q = 2 * Math.max(0, radius);
+  if (q >= 2) return 0;
+  if (q < 1) return 1 - 1.5 * q * q + 0.75 * q * q * q;
+  const u = 2 - q;
+  return 0.25 * u * u * u;
+}
+
+function quantizeByte(value, step) {
+  return Math.max(0, Math.min(255, Math.round(Math.round(value) / step) * step));
 }
 
 function scheduleWebGpuBlankCheck(reason) {
@@ -1015,7 +1089,7 @@ function scheduleWebGpuBlankCheck(reason) {
 
 async function probeCanvasVisibility() {
   const blob = await new Promise(resolve => els.scene.toBlob(resolve, "image/png"));
-  if (!blob) return { visible: false, reason: "canvas snapshot was empty", changedPixels: 0, brightPixels: 0 };
+  if (!blob) return { visible: false, reason: "canvas snapshot was empty", nonWhitePixels: 0, blackPixels: 0 };
   const bitmap = await createImageBitmap(blob);
   const sample = document.createElement("canvas");
   sample.width = 96;
@@ -1028,22 +1102,28 @@ async function probeCanvasVisibility() {
   ctx.drawImage(bitmap, 0, 0, sample.width, sample.height);
   bitmap.close?.();
   const data = ctx.getImageData(0, 0, sample.width, sample.height).data;
-  let changedPixels = 0;
-  let brightPixels = 0;
+  let nonWhitePixels = 0;
+  let blackPixels = 0;
+  const totalPixels = data.length / 4;
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i];
     const g = data[i + 1];
     const b = data[i + 2];
-    const diff = Math.abs(r - 9) + Math.abs(g - 11) + Math.abs(b - 13);
-    if (diff > 24) changedPixels++;
-    if (r + g + b > 80) brightPixels++;
+    const whiteDiff = Math.abs(r - 255) + Math.abs(g - 255) + Math.abs(b - 255);
+    if (whiteDiff > 36) nonWhitePixels++;
+    if (r + g + b < 36) blackPixels++;
   }
-  const visible = changedPixels > 20 || brightPixels > 20;
+  const mostlyBlack = blackPixels > totalPixels * 0.92;
+  const visible = nonWhitePixels > 30 && !mostlyBlack;
   return {
     visible,
-    reason: visible ? "non-background pixels detected" : "only background pixels detected",
-    changedPixels,
-    brightPixels,
+    reason: visible
+      ? "non-background pixels detected"
+      : mostlyBlack
+        ? "solid black WebGPU frame detected"
+        : "only white background pixels detected",
+    nonWhitePixels,
+    blackPixels,
   };
 }
 
@@ -1431,12 +1511,19 @@ fn vs(@builtin(vertex_index) vertexIndex: u32, @builtin(instance_index) instance
 
 @fragment
 fn fs(in: VsOut) -> @location(0) vec4<f32> {
-  let r = dot(in.local, in.local);
-  if (r > 1.0) {
+  let radius = length(in.local);
+  if (radius >= 1.0) {
     discard;
   }
-  let edge = smoothstep(1.0, 0.64, r);
-  return vec4<f32>(in.color.rgb, in.color.a * edge);
+  let q = 2.0 * radius;
+  var kernel = 0.0;
+  if (q < 1.0) {
+    kernel = 1.0 - 1.5 * q * q + 0.75 * q * q * q;
+  } else {
+    let u = 2.0 - q;
+    kernel = 0.25 * u * u * u;
+  }
+  return vec4<f32>(in.color.rgb, in.color.a * kernel);
 }`;
 }
 
