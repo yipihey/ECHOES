@@ -102,7 +102,7 @@ async function main() {
     resizeCanvas();
     setLoading(state.renderer === "webgpu" ? "Uploading catalog to the GPU..." : "Preparing canvas fallback...");
     rebuildScene(true);
-    render();
+    safeRender("initial render");
     scheduleWebGpuBlankCheck("initial render");
     state.needsRender = false;
     hideLoading();
@@ -273,7 +273,7 @@ function attachEvents() {
       await initRenderer();
       resizeCanvas();
       rebuildScene(false);
-      render();
+      safeRender("manual renderer switch");
       scheduleWebGpuBlankCheck("manual renderer switch");
       hideLoading();
     } catch (err) {
@@ -414,7 +414,7 @@ async function initRenderer() {
       console.warn("WebGPU device lost; switching to canvas fallback.", info);
       initCanvasFallback(`WebGPU device lost: ${info.message || info.reason || "unknown reason"}`);
       rebuildScene(false);
-      render();
+      safeRender("WebGPU device lost fallback");
     });
   } catch (err) {
     console.warn("WebGPU initialization failed; switching to canvas fallback.", err);
@@ -509,27 +509,42 @@ async function initGpu() {
     pipeline,
     linePipeline,
     depthTexture: null,
+    configuredWidth: 0,
+    configuredHeight: 0,
   };
 }
 
-function resizeCanvas() {
+function resizeCanvas(forceConfigure = false) {
   const ratio = Math.min(window.devicePixelRatio || 1, 2);
   const width = Math.max(1, Math.floor(els.scene.clientWidth * ratio));
   const height = Math.max(1, Math.floor(els.scene.clientHeight * ratio));
-  if (els.scene.width === width && els.scene.height === height) return;
-  els.scene.width = width;
-  els.scene.height = height;
+  const sizeChanged = els.scene.width !== width || els.scene.height !== height;
+  if (sizeChanged) {
+    els.scene.width = width;
+    els.scene.height = height;
+  }
   if (state.renderer === "webgpu" && state.gpu) {
+    const needsConfigure = forceConfigure
+      || sizeChanged
+      || !state.gpu.depthTexture
+      || state.gpu.configuredWidth !== width
+      || state.gpu.configuredHeight !== height;
+    if (!needsConfigure) return;
     state.gpu.context.configure({
       device: state.gpu.device,
       format: state.gpu.format,
       alphaMode: "opaque",
     });
+    state.gpu.depthTexture?.destroy?.();
     state.gpu.depthTexture = state.gpu.device.createTexture({
       size: [width, height],
       format: "depth24plus",
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
+    state.gpu.configuredWidth = width;
+    state.gpu.configuredHeight = height;
+  } else if (!sizeChanged) {
+    return;
   }
   state.needsRender = true;
 }
@@ -917,10 +932,44 @@ function ticks(lo, hi, n) {
 
 function frame() {
   if (state.catalog && state.needsRender) {
-    render();
-    state.needsRender = false;
+    if (safeRender("animation frame")) state.needsRender = false;
   }
   requestAnimationFrame(frame);
+}
+
+function safeRender(reason) {
+  try {
+    render();
+    return true;
+  } catch (err) {
+    handleRenderFailure(err, reason);
+    return false;
+  }
+}
+
+function handleRenderFailure(err, reason) {
+  console.error(err);
+  updateDiagnostics("render-error", err);
+  if (state.renderer !== "webgpu") {
+    showLoadError(err);
+    return;
+  }
+  const message = err.message || String(err);
+  state.blankCheck = {
+    visible: false,
+    reason: `WebGPU render failed during ${reason}: ${message}`,
+  };
+  state.preferredRenderer = "canvas2d";
+  if (els.rendererSelect) els.rendererSelect.value = "canvas2d";
+  try {
+    initCanvasFallback(`WebGPU render failed during ${reason}: ${message}`);
+    rebuildScene(false);
+    render();
+    state.needsRender = false;
+    hideLoading();
+  } catch (fallbackErr) {
+    showLoadError(fallbackErr);
+  }
 }
 
 function render() {
@@ -931,6 +980,8 @@ function render() {
   if (!state.gpu || !state.buffers) return;
   resizeCanvas();
   const gpu = state.gpu;
+  if (!gpu.depthTexture) resizeCanvas(true);
+  if (!gpu.depthTexture) throw new Error("WebGPU depth texture is unavailable after canvas configuration");
   const device = gpu.device;
   const viewProj = computeViewProjection();
   state.lastViewProj = viewProj;
@@ -1072,7 +1123,7 @@ function scheduleWebGpuBlankCheck(reason) {
       if (els.rendererSelect) els.rendererSelect.value = "canvas2d";
       initCanvasFallback(`blank WebGPU frame after ${reason}; ${probe.reason}`);
       rebuildScene(false);
-      render();
+      safeRender("blank-frame fallback");
       hideLoading();
     } catch (err) {
       console.warn("Could not inspect WebGPU frame; switching to Canvas2D fallback.", err);
@@ -1081,7 +1132,7 @@ function scheduleWebGpuBlankCheck(reason) {
       if (els.rendererSelect) els.rendererSelect.value = "canvas2d";
       initCanvasFallback(`WebGPU frame could not be inspected: ${err.message || err}`);
       rebuildScene(false);
-      render();
+      safeRender("frame-inspection fallback");
       hideLoading();
     }
   }, 700);
@@ -1320,7 +1371,7 @@ function toggleBlink() {
 
 function downloadScreenshot() {
   state.needsRender = true;
-  render();
+  safeRender("screenshot");
   setTimeout(() => {
     els.scene.toBlob((blob) => {
       if (!blob) return;
