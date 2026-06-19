@@ -10,6 +10,8 @@ MODULES = [
     "echoes.mock_systematics", "echoes.cli",
     "echoes.surveys.base", "echoes.surveys.sdss_io", "echoes.surveys.boss",
     "echoes.surveys.boss_targets",
+    # field-level reconstruction (needs jax/graphgp for the conditional solve)
+    "echoes.pit", "echoes.selection_model", "echoes.field_posterior", "echoes.fieldpost",
 ]
 
 @pytest.mark.parametrize("mod", MODULES)

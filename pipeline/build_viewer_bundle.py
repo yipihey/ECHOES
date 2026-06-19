@@ -33,38 +33,13 @@ DEFAULT_PACKAGE = ROOT / "data_release" / "cmass_south_posterior.npz"
 DEFAULT_SOURCE = ROOT / "apps" / "echoes-viewer"
 DEFAULT_OUT = ROOT / "docs" / "visualizer"
 
-PROVENANCE_CODES = {
-    "0": {
-        "label": "observed spectroscopy",
-        "short_label": "observed",
-        "description": "Original BOSS CMASS-South galaxy with a measured spectroscopic redshift.",
-        "color": "#d8dde5",
-    },
-    "1": {
-        "label": "fiber-collision completion",
-        "short_label": "collided",
-        "description": "ECHOES galaxy restored at an imaging-target position affected by the fiber-collision scale.",
-        "color": "#39b5ff",
-    },
-    "2": {
-        "label": "redshift-failure completion",
-        "short_label": "zfail",
-        "description": "ECHOES galaxy restored for a failed spectroscopic redshift.",
-        "color": "#c071ff",
-    },
-    "3": {
-        "label": "imaging-systematic analog",
-        "short_label": "systot",
-        "description": "ECHOES analog galaxy sampled from the WEIGHT_SYSTOT multiplicity model.",
-        "color": "#ffb84d",
-    },
-    "4": {
-        "label": "host-redshift fallback",
-        "short_label": "zhost",
-        "description": "Fallback redshift assignment used when a missing-galaxy posterior is degenerate.",
-        "color": "#ff6f61",
-    },
-}
+from echoes.completion import prov_registry, group_registry
+
+# Single source of truth for provenance codes/labels/colours/groups lives in
+# echoes.completion (shared with tools/viz_provenance.py). Keys are stringified for
+# the JSON manifest the viewer loads.
+PROVENANCE_CODES = {str(code): meta for code, meta in prov_registry().items()}
+PROVENANCE_GROUPS = group_registry()           # coarse origin groups (colour-by-origin)
 
 
 def _jsonify(x: Any) -> Any:
@@ -326,6 +301,7 @@ def build_viewer_bundle(
             }
         ],
         "provenance_codes": PROVENANCE_CODES,
+        "provenance_groups": PROVENANCE_GROUPS,
         "enriched_bundle": {
             "supported": True,
             "description": "Pass --enriched-npz with one-dimensional observed/base columns to append raw catalog parameters, computed weights, or method diagnostics without changing the viewer runtime.",

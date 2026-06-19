@@ -261,6 +261,85 @@ def _clpair_density(dz_pool, n_bins: int = 121, dz_max: float = 0.06):
 PROV = {"observed": 0, "collided": 1, "zfail": 2, "systot": 3, "zhost": 4, "inpaint": 5}
 PROV_NAME = {v: k for k, v in PROV.items()}
 
+# Coarse category each provenance code rolls up to, for visualizers / data products.
+# Three distinct origins the user must be able to separate:
+#   "observed"  — real spec-z, the fixed base catalogue;
+#   "completed" — a spectroscopically-MISSING galaxy restored at its imaging
+#                 position with a data-driven redshift. Split by WHY it was missing:
+#                 fiber-collision (collided / zhost-fallback) vs redshift-failure;
+#   "inpainted" — a synthetic point added to undo an imaging-systematic density
+#                 deficit (systot analogs; future mask-hole inpaint), NOT a real
+#                 missing galaxy — it has no imaging counterpart of its own.
+PROV_GROUP = {
+    PROV["observed"]: "observed",
+    PROV["collided"]: "completed:fiber-collision",
+    PROV["zhost"]:    "completed:fiber-collision",
+    PROV["zfail"]:    "completed:redshift-failure",
+    PROV["systot"]:   "inpainted:imaging-systematic",
+    PROV["inpaint"]:  "inpainted:mask-hole",
+}
+# display colours (dark-background visualizer / WebGPU viewer). Canonical palette
+# shared by the interactive viewer (pipeline/build_viewer_bundle.py) and the static
+# tool (tools/viz_provenance.py) — one source of truth, no per-front-end drift.
+PROV_COLOR = {
+    PROV["observed"]: "#d8dde5",   # light grey — the spec-z base
+    PROV["collided"]: "#39b5ff",   # blue   — fiber-collision completion
+    PROV["zfail"]:    "#c071ff",   # purple — redshift-failure completion
+    PROV["systot"]:   "#ffb84d",   # orange — imaging-systematic inpaint
+    PROV["zhost"]:    "#ff6f61",   # red    — fiber-collision (host-z fallback)
+    PROV["inpaint"]:  "#41d6b0",   # teal   — mask-hole inpaint (reserved)
+}
+# short + long human labels per code (the viewer manifest and any legend use these).
+PROV_LABEL = {
+    PROV["observed"]: ("observed", "observed spectroscopy"),
+    PROV["collided"]: ("collided", "fiber-collision completion"),
+    PROV["zfail"]:    ("zfail", "redshift-failure completion"),
+    PROV["systot"]:   ("systot", "imaging-systematic analog"),
+    PROV["zhost"]:    ("zhost", "host-redshift fallback"),
+    PROV["inpaint"]:  ("inpaint", "mask-hole inpaint"),
+}
+PROV_DESCRIPTION = {
+    PROV["observed"]: "Original BOSS CMASS-South galaxy with a measured spectroscopic redshift.",
+    PROV["collided"]: "ECHOES galaxy restored at an imaging-target position affected by the fiber-collision scale.",
+    PROV["zfail"]:    "ECHOES galaxy restored for a failed spectroscopic redshift.",
+    PROV["systot"]:   "ECHOES analog galaxy sampled from the WEIGHT_SYSTOT multiplicity model (synthetic inpaint, not a real missing galaxy).",
+    PROV["zhost"]:    "Fiber-collision completion whose redshift fell back to the host galaxy.",
+    PROV["inpaint"]:  "Synthetic point filling a masked imaging hole (reserved; not currently produced).",
+}
+
+
+# colour per coarse group (the representative code's colour) + display order, for
+# the "colour by origin" view that merges host-z fallback into fiber-collision.
+PROV_GROUP_COLOR = {
+    "observed": PROV_COLOR[PROV["observed"]],
+    "completed:fiber-collision": PROV_COLOR[PROV["collided"]],
+    "completed:redshift-failure": PROV_COLOR[PROV["zfail"]],
+    "inpainted:imaging-systematic": PROV_COLOR[PROV["systot"]],
+    "inpainted:mask-hole": PROV_COLOR[PROV["inpaint"]],
+}
+
+
+def prov_registry():
+    """Canonical per-code provenance metadata for visualizers / data products:
+    ``{code: {short_label, label, description, color, group}}``. The interactive
+    viewer manifest and the static tool both build from this, so the codes, colours
+    and the inpaint-vs-completed grouping never drift between front-ends."""
+    return {code: {"short_label": PROV_LABEL[code][0], "label": PROV_LABEL[code][1],
+                   "description": PROV_DESCRIPTION[code], "color": PROV_COLOR[code],
+                   "group": PROV_GROUP[code]}
+            for code in sorted(PROV.values())}
+
+
+def group_registry():
+    """Canonical per-group metadata ``{group: {label, color, codes}}`` for the
+    "colour by origin" view — the coarse observed / completed:fiber-collision /
+    completed:redshift-failure / inpainted split. Order matches PROV_GROUP_COLOR."""
+    out = {}
+    for g, color in PROV_GROUP_COLOR.items():
+        out[g] = {"label": g.replace(":", " — "), "color": color,
+                  "codes": [c for c in sorted(PROV.values()) if PROV_GROUP[c] == g]}
+    return out
+
 
 def _systot_restore_extras(base_ra, base_dec, base_z, src, rng, jitter_arcsec=1.0):
     """Restore ``len(src)`` WEIGHT_SYSTOT-implied galaxies at the survivor scale.
@@ -343,9 +422,12 @@ def complete_catalog_photoz(
     dz_pool=None,
     count: str = "round",
     systot_mode: str = "analog",
+    systot_thin: bool = True,
     z_mode: str = "field",
     gp_field=None,
     gp_kwargs=None,
+    field_ctx=None,
+    fieldpost_kwargs=None,
     verbose: bool = False,
 ):
     """Equal-weight completion using REAL imaging positions + photo-z redshifts.
@@ -360,18 +442,24 @@ def complete_catalog_photoz(
 
     ``systot_mode`` controls (3):
 
-    - ``'analog'`` (default): the integer **excess** ``n_i−1`` of each object is
-      restored at the survivor scale (:func:`_systot_restore_extras`) — a
-      sub-arcsec jitter of the source position carrying its redshift — which
+    - ``'analog'`` (default): the integer **excess** ``max(w_systot−1,0)`` of each
+      object is restored at the survivor scale (:func:`_systot_restore_extras`) —
+      a sub-arcsec jitter of the source position carrying its redshift — which
       reproduces w(θ)/ξ at all resolved scales while removing the unphysical
       Δθ=0 delta-spike that exact duplication creates and that corrupts kNN /
-      coincident-point statistics. One un-jittered copy of each object with
-      ``n_i≥1`` is kept; ``n_i=0`` thins it.
+      coincident-point statistics. With ``systot_thin=True`` (default) the
+      complement is also applied — each base object is **kept with probability
+      min(w_systot,1)** — so regions with ``w_systot<1`` (64% of CMASS-South) are
+      thinned rather than left over-dense; otherwise the equal-weight catalog
+      reproduces a ``max(w_systot,1)``-weighting and imprints a degree-scale
+      imaging-systematic gradient. ``systot_thin=False`` is the legacy add-only
+      behavior (keeps every detection).
     - ``'duplicate'`` (legacy, for A/B tests): ``n_i`` exact copies via
       ``np.repeat`` (creates Δθ=0 duplicates; biases small-scale/higher-order).
 
-    Either way E[count per host group] = w_systot·(w_cp+w_noz−1) = w_c, so the
-    weighted clustering is reproduced in the mean. Cosmology-free throughout.
+    With ``systot_thin`` E[count per base object] = w_systot, so the
+    w_systot-weighted density is reproduced in the ensemble mean (the per-draw
+    thinning shot noise is part of the calibrated spread). Cosmology-free throughout.
     Returns ``dict(ra, dec, z, N, prov)`` where ``prov`` is a per-object
     provenance code (see :data:`PROV`).
 
@@ -481,6 +569,21 @@ def complete_catalog_photoz(
             draw_index = seed % gp_field.n_samples
         z_miss, zhost_fallback = _graphgp_zmiss(targets, photoz, dz_pool, gp_field, draw_index,
                                                 z_o, z_host, miss_kind, rng)
+    elif z_mode == "fieldpost":
+        # FIELD-LEVEL CONDITIONAL POSTERIOR (the real thing): each missing redshift is
+        # drawn from the proper GP posterior of the overdensity field along its
+        # sightline, conditioned on the nearby observed galaxies through the
+        # log-Gaussian-Cox-process linearization (echoes.fieldpost). Unlike 'field'/
+        # 'knn2d' (fixed-aperture/K-nearest local density) it carries the field's full
+        # correlation structure and reverts via the kernel in data-poor stretches.
+        # Pass a precomputed field_ctx to amortise the ξ→kernel measurement across an
+        # ensemble; else build one. fieldpost_kwargs overrides the build.
+        from .fieldpost import build_field_context, _fieldpost_zmiss
+        if field_ctx is None:
+            field_ctx = build_field_context(catalog, seed=seed, **(fieldpost_kwargs or {}))
+        draw_index = seed % max(1, getattr(field_ctx, "n_samples", 1))
+        z_miss, zhost_fallback = _fieldpost_zmiss(targets, photoz, dz_pool, field_ctx,
+                                                  draw_index, z_o, z_host, miss_kind, rng)
     else:
         # 'photoz': per-object redshift from p(z|colours) × close-pair prior (more
         # realistic per-object z, but LOS-smeared — degrades 3-D redshift-space clustering).
@@ -515,17 +618,29 @@ def complete_catalog_photoz(
              else np.floor(base_wsys + rng.random(len(base_wsys))).astype(int))
         idx = np.repeat(np.arange(len(base_ra)), n)
         out_ra, out_dec, out_z, out_prov = base_ra[idx], base_dec[idx], base_z[idx], base_prov[idx]
-    else:                                                  # 'analog': KEEP ALL real galaxies,
-        # add only the WEIGHT_SYSTOT EXCESS as local analogs. Never drop a real detection
-        # (so all correlation functions are preserved and no observed galaxy is discarded);
-        # E[n_i] = 1 + max(w_systot-1,0). The excess restores the imaging-systematic deficit.
+    else:                                                  # 'analog'
+        # MEAN-PRESERVING imaging-systematic completion: E[count per base object]
+        # = w_systot. Restore the deficit where w_systot>1 by adding local analogs
+        # (max(w_systot-1,0) per object), AND — with systot_thin (default) — thin
+        # where w_systot<1 by dropping each base object with probability
+        # 1-w_systot. Thinning only the excess (add-only) would half-correct the
+        # systematic: w_systot<1 regions (64% of CMASS-South) would stay over-dense
+        # and imprint a degree-scale density gradient that the equal-weight catalog
+        # is meant to remove. The drop is stochastic per realization; the ensemble
+        # mean is exactly w_systot-weighted, and the per-realization shot noise is
+        # part of the calibrated completion spread. systot_thin=False recovers the
+        # legacy add-only behavior (keeps every detection; leaves the <1 gradient).
+        if systot_thin:
+            keep = rng.random(len(base_wsys)) < np.minimum(base_wsys, 1.0)
+        else:
+            keep = np.ones(len(base_wsys), bool)
         n_extra = np.floor(np.maximum(base_wsys - 1.0, 0.0) + rng.random(len(base_wsys))).astype(int)
         src = np.repeat(np.arange(len(base_ra)), n_extra)
         ex_ra, ex_dec, ex_z = _systot_restore_extras(base_ra, base_dec, base_z, src, rng)
-        out_ra = np.concatenate([base_ra, ex_ra])
-        out_dec = np.concatenate([base_dec, ex_dec])
-        out_z = np.concatenate([base_z, ex_z])
-        out_prov = np.concatenate([base_prov, np.full(len(ex_ra), PROV["systot"])])
+        out_ra = np.concatenate([base_ra[keep], ex_ra])
+        out_dec = np.concatenate([base_dec[keep], ex_dec])
+        out_z = np.concatenate([base_z[keep], ex_z])
+        out_prov = np.concatenate([base_prov[keep], np.full(len(ex_ra), PROV["systot"])])
     if verbose:
         print(f"[complete-photoz] N_obs={len(ra_o):,} + {targets.N:,} missing "
               f"-> N_eq={len(out_ra):,} (+{100*(len(out_ra)/len(ra_o)-1):.1f}%), "

@@ -85,8 +85,19 @@ store K copies (the observed galaxies are shared). Pair the catalogs with
 the completion reproduces the official w_c-weighted clustering to ~1-2%.
 
 ## Columns
-RA, DEC [deg]; Z (redshift); PROV: 0 observed-specz, 1 fiber-collided,
-2 redshift-failure, 3 systot-analog, 4 zhost-fallback.
+RA, DEC [deg]; Z (redshift); PROV (per-object provenance, int8):
+  0 observed   — real spec-z, the fixed base catalogue;
+  1 collided   — COMPLETED: galaxy lost to a fiber collision, restored at its
+                 imaging position with a close-pair-anchored redshift;
+  2 zfail      — COMPLETED: galaxy whose spectrum yielded no redshift, restored
+                 from imaging with a local-density / photo-z redshift;
+  4 zhost      — COMPLETED (fiber-collision), redshift fell back to the host;
+  3 systot     — INPAINTED: a synthetic point added to undo an imaging-systematic
+                 density deficit. NOT a real missing galaxy (no imaging counterpart
+                 of its own); drop these for any imaging-position-level analysis.
+Roll-up groups (observed / completed:fiber-collision / completed:redshift-failure
+/ inpainted) and matching display colours are in echoes.completion.PROV_GROUP /
+PROV_COLOR; tools/viz_provenance.py renders the catalog coloured by them.
 
 See DATA.md and docs/method.md (repository root) for product conventions, scope,
 and the systematics budget.

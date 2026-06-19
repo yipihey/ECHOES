@@ -197,11 +197,16 @@ function populateControls() {
   populateRealizations();
 
   const appearanceCols = state.manifest.columns.filter(c => ["coordinate", "weight", "categorical"].includes(c.role));
+  const hasGroups = state.manifest.provenance_groups && appearanceCols.some(c => c.id === "provenance");
   for (const select of [controls.colorBy, controls.sizeBy]) {
     select.innerHTML = "";
     if (select === controls.sizeBy) select.append(new Option("Fixed", "fixed"));
     for (const col of appearanceCols) {
       select.append(new Option(col.label, col.id));
+      // synthetic "colour by origin" mode sits next to the fine provenance column
+      if (select === controls.colorBy && col.id === "provenance" && hasGroups) {
+        select.append(new Option("provenance group (origin)", "provenance_group"));
+      }
     }
   }
   controls.colorBy.value = state.settings.colorBy;
@@ -779,7 +784,7 @@ function pointSizeFor(row, values, ranges) {
   const key = state.settings.sizeBy;
   if (key === "fixed") return row.source ? 3.2 : 2.0;
   if (key === "source") return row.source ? 3.8 : 1.9;
-  if (key === "provenance") return row.prov === 0 ? 1.9 : 3.4;
+  if (key === "provenance" || key === "provenance_group") return row.prov === 0 ? 1.9 : 3.4;
   const value = values[key];
   if (!Number.isFinite(value)) return 2.2;
   const t = normalize(value, ranges[key] || [0, 1]);
@@ -790,6 +795,7 @@ function colorFor(row, values, ranges) {
   const key = state.settings.colorBy;
   const alpha = state.settings.opacity;
   if (key === "provenance") return [...hexToRgb(provColor(row.prov)), alpha];
+  if (key === "provenance_group") return [...hexToRgb(provGroupColor(row.prov)), alpha];
   if (key === "source") return row.source ? [...hexToRgb("#41d6b0"), alpha] : [...hexToRgb("#d8dde5"), alpha * 0.62];
   const value = values[key];
   const t = normalize(value, ranges[key] || [0, 1]);
@@ -799,6 +805,15 @@ function colorFor(row, values, ranges) {
 
 function provColor(prov) {
   return state.manifest.provenance_codes[String(prov)]?.color || "#ffffff";
+}
+
+function provGroup(prov) {
+  return state.manifest.provenance_codes[String(prov)]?.group;
+}
+
+function provGroupColor(prov) {
+  const g = provGroup(prov);
+  return state.manifest.provenance_groups?.[g]?.color || provColor(prov);
 }
 
 function normalize(value, range) {
@@ -1479,8 +1494,18 @@ function updateCosmologyText() {
 }
 
 function renderLegend() {
-  const codes = state.manifest?.provenance_codes || {};
   els.legend.innerHTML = "";
+  if (state.settings.colorBy === "provenance_group") {
+    const groups = state.manifest?.provenance_groups || {};
+    for (const meta of Object.values(groups)) {
+      const item = document.createElement("span");
+      item.className = "legend-item";
+      item.innerHTML = `<span class="swatch" style="background:${meta.color}"></span>${meta.label}`;
+      els.legend.append(item);
+    }
+    return;
+  }
+  const codes = state.manifest?.provenance_codes || {};
   for (const [code, meta] of Object.entries(codes)) {
     const item = document.createElement("span");
     item.className = "legend-item";

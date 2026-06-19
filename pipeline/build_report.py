@@ -146,6 +146,8 @@ def compute(quick=False):
     pit = np.array([np.sum(wk[i][np.isfinite(wk[i])] * (zk[i][np.isfinite(wk[i])] < zt[i]))
                     for i in range(len(zt))])
     D["pit"] = pit; D["pz_zsample"] = pz_cal.sample(fg[test], rs, n=1)
+    from echoes.pit import pit_uniformity
+    D["pit_stats"] = pit_uniformity(pit)
     D["frac_reliable_phot"] = float(good.sum() / cat.N_data)
     # colour-redshift (subsample with reliable colours)
     cs = rs.choice(np.where(good)[0], min(30000, good.sum()), replace=False)
@@ -509,7 +511,7 @@ def render(D, figs, Dm, Dc):
       <div>Missing fraction: <b>{100*g('miss_frac'):.1f}%</b></div>
       <div>Reliable photometry: <b>{100*g('frac_reliable_phot'):.1f}%</b></div>
       <div>Photo-z σ<sub>NMAD</sub>: <b>{g('sigma_nmad'):.3f}</b></div>
-      <div>Photo-z PIT mean: <b>{D['pit'].mean():.3f}</b> (0.5 ideal)</div>
+      <div>Photo-z PIT: <b>mean {D['pit_stats']['mean']:.3f}</b>, KS p={D['pit_stats']['ks_p']:.2f} (uniform if ≳0.05)</div>
       <div>Recovered collided: <b>{int(D['n_collided']):,}</b> / {int(round(g('wcp_implied'))):,} implied</div>
       <div>Recovered z-failures: <b>{int(D['n_zfail']):,}</b> / {int(round(g('wnoz_implied'))):,} implied</div>
       <div>Angular w(θ) closure: <b>≈ {100*np.nanmean((D['wt_ens_data'].mean(0)/D['wt_data']))-100:+.0f}%</b></div>
@@ -619,7 +621,9 @@ def render(D, figs, Dm, Dc):
              f"(σ<sub>NMAD</sub>={g('sigma_nmad'):.3f}, bias {g('pz_bias'):+.4f}, "
              f"{100*g('pz_outlier'):.1f}% catastrophic). <b>Middle:</b> the probability-integral-"
              f"transform histogram — the rank of each true redshift within its own posterior. A flat "
-             f"PIT (mean {D['pit'].mean():.3f}, ideal 0.5) means the posterior is statistically "
+             f"PIT (mean {D['pit_stats']['mean']:.3f}, ideal 0.5; KS p={D['pit_stats']['ks_p']:.2f}, "
+             f"χ² p={D['pit_stats']['chi2_p']:.2f} vs uniform — the mean alone is insufficient since a "
+             f"U-shaped over-confident PIT also has mean 0.5) means the posterior is statistically "
              f"<i>calibrated</i>, so drawing a redshift from it is faithful — the property the "
              f"completion relies on. <b>Right:</b> a single posterior draw per object recovers the "
              f"true held-out n(z). Assumption: the colour→z mapping learned from good-redshift "
@@ -701,9 +705,9 @@ def render(D, figs, Dm, Dc):
              "<b>p(z | n̂, colours) ∝ (1+δ<sub>g</sub>(n̂,z)) · n̄(z) · p<sub>photoz</sub></b>, "
              "where (1+δ<sub>g</sub>)·n̄ is a kernel estimate of the local redshift density built "
              "from the K nearest observed spectroscopic galaxies along the sightline. This default "
-             "engine is a fast, cosmology-free <b>KNN approximation</b> to a conditional Gaussian-"
-             "process field — not a GP itself. The actual graphGP Matheron posterior is available "
-             "as a separate engine; a head-to-head on real CMASS shows the two recover the same "
+             "engine is a fast, cosmology-free <b>KNN density estimate</b> along the sightline. The "
+             "complementary graphGP field-level engine (FKP-KDE + coverage ensemble) is available "
+             "as a separate route; a head-to-head on real CMASS shows the two recover the same "
              "clustering to ~1%, so the KNN proxy is the default (it is also what compresses to the "
              "2&nbsp;MB shareable package). The photo-z picks the right peak; the local galaxy "
              "field sharpens it to the physical clustering scale; no cosmology is assumed. This is "
@@ -999,21 +1003,24 @@ def render(D, figs, Dm, Dc):
     H.append("<h2>The graphGP route: a conditional Gaussian-process redshift field</h2>")
     H.append("<p class='lead'>The default completion (other tab) assigns each missing galaxy's "
              "redshift from a fast <b>local-density (KNN)</b> estimate along its sightline. This "
-             "project is named for a more powerful, more flexible engine — <b>graphGP</b>, a "
-             "scalable nearest-neighbour (Vecchia) Gaussian process — and it is available as a "
+             "project is named for a more flexible, field-level engine — <b>graphGP</b>, a "
+             "smooth density-field estimate with a survey-coverage-scaled ensemble — available as a "
              "first-class drop-in. This tab explains it and shows the head-to-head.</p>")
     H.append("<div class='callout'>Switch engines with one argument:"
              "<pre>from echoes.completion import complete_catalog_photoz, build_gp_field\n"
-             "field = build_gp_field(cat, n_samples=20)          # conditional GP posterior, built once\n"
+             "field = build_gp_field(cat, n_samples=20)          # FKP-KDE field + coverage ensemble, built once\n"
              "cat_s = complete_catalog_photoz(cat, tg, pz, z_mode='graphgp', gp_field=field, seed=s)</pre>"
              "The default stays <code>z_mode='field'</code> (KNN); <code>'graphgp'</code> is the "
              "opt-in flexible engine that other surveys will want.</div>")
 
     H.append("<h3>What it does</h3>")
-    H.append("<p>Instead of a per-object KNN kernel density, graphGP draws a full <b>conditional "
-             "posterior of the galaxy density field</b> δ(n̂,z) given the observed galaxies, via "
-             "Matheron's pathwise-conditioning rule on a Vecchia graph "
-             "(<code>echoes/graphgp_field.py</code>). Each missing galaxy's redshift is then "
+    H.append("<p>Instead of a per-object KNN kernel density, graphGP builds a survey-wide <b>field "
+             "estimate of the galaxy density</b> 1+δ(n̂,z) — an adaptive FKP kernel-density ratio "
+             "whose kernel is tabulated from the measured ξ(r) — plus a coverage-scaled stochastic "
+             "ensemble (full-amplitude where the survey is data-poor, suppressed near data; the "
+             "data-point noise is a ξ-correlated draw on a Vecchia graph, <code>echoes/"
+             "graphgp_field.py</code>). It is a fast field-level <i>estimate</i>, not an exact GP "
+             "conditional solve. Each missing galaxy's redshift is then "
              "drawn from <b>p(z | n̂, colours) ∝ (1+δ(n̂,z)) · n̄(z) · p<sub>photoz</sub></b> with "
              "the GP field evaluated along its sightline — so neighbouring missing galaxies are "
              "<i>correlated</i> through the shared field draw (the KNN proxy treats them "
@@ -1055,10 +1062,10 @@ def render(D, figs, Dm, Dc):
     H.append("<h3>When to use which</h3>")
     H.append("<table>"
              "<tr><th></th><th>z_mode='field' (default, KNN)</th><th>z_mode='graphgp'</th></tr>"
-             "<tr><td>method</td><td>local-density KNN-KDE</td><td>conditional anisotropic GP "
-             "(Matheron)</td></tr>"
+             "<tr><td>method</td><td>local-density KNN-KDE</td><td>FKP-KDE field + coverage-scaled "
+             "ensemble</td></tr>"
              "<tr><td>best at</td><td>sub-Mpc fiber-collision scale</td><td>large scales; correlated "
-             "field-level posterior</td></tr>"
+             "field-level draws</td></tr>"
              "<tr><td>cosmology</td><td>none</td><td>fiducial is a validated gauge (&lt;0.1%) → still "
              "data-driven</td></tr>"
              "<tr><td>cost</td><td>~seconds; 2 MB inverse-CDF package</td><td>~minutes/ensemble; "

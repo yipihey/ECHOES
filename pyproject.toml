@@ -36,6 +36,10 @@ graphgp = [
   "graphgp @ git+https://github.com/yipihey/graphgp@hierarchical-chunked-generation",
   "jax>=0.4", "h5py>=3.8",
 ]
+# NIFTy field-level inference engine (nifty8.re / jax): learned power spectrum,
+# Poisson-lognormal likelihood, geoVI — the parallel cross-check of the graphGP
+# conditional field posterior.
+nifty = ["nifty8>=8.5", "jax>=0.4", "optax>=0.2"]
 # One-time uniform-randoms generation from the survey mangle mask.
 mask = ["pymangle>=0.9.4"]
 # Fetching imaging targets / Gaia bright stars.
