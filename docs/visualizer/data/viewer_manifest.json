@@ -224,7 +224,7 @@
     "method_extension_point": "methods",
     "supported": true
   },
-  "generated_utc": "2026-06-19T22:45:51Z",
+  "generated_utc": "2026-06-19T23:06:00Z",
   "generator": "pipeline/build_viewer_bundle.py",
   "methods": [
     {
@@ -541,6 +541,44 @@
       "group": "inpainted:mask-hole",
       "label": "mask-hole inpaint",
       "short_label": "inpaint"
+    }
+  },
+  "provenance_groups": {
+    "completed:fiber-collision": {
+      "codes": [
+        1,
+        4
+      ],
+      "color": "#39b5ff",
+      "label": "completed \u2014 fiber-collision"
+    },
+    "completed:redshift-failure": {
+      "codes": [
+        2
+      ],
+      "color": "#c071ff",
+      "label": "completed \u2014 redshift-failure"
+    },
+    "inpainted:imaging-systematic": {
+      "codes": [
+        3
+      ],
+      "color": "#ffb84d",
+      "label": "inpainted \u2014 imaging-systematic"
+    },
+    "inpainted:mask-hole": {
+      "codes": [
+        5
+      ],
+      "color": "#41d6b0",
+      "label": "inpainted \u2014 mask-hole"
+    },
+    "observed": {
+      "codes": [
+        0
+      ],
+      "color": "#d8dde5",
+      "label": "observed"
     }
   },
   "schema_version": "echoes.viewer.v1"

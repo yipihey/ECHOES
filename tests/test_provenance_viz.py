@@ -1,7 +1,8 @@
 """Provenance grouping + visualizer colour helpers."""
 import numpy as np
 
-from echoes.completion import PROV, PROV_GROUP, PROV_COLOR
+from echoes.completion import (PROV, PROV_GROUP, PROV_COLOR, prov_registry,
+                               group_registry)
 from tools.viz_provenance import prov_rgba, prov_k3d_colors, _group_of
 
 
@@ -45,3 +46,20 @@ def test_group_of_vectorised():
     prov = np.array([0, 1, 2, 3])
     g = _group_of(prov)
     assert len(g) == 4 and g[0] == "observed"
+
+
+def test_registries_are_single_source_of_truth():
+    # every code has full metadata; the viewer manifest builds straight from this
+    reg = prov_registry()
+    for code in PROV.values():
+        assert set(reg[code]) >= {"short_label", "label", "description", "color", "group"}
+        assert reg[code]["color"] == PROV_COLOR[code]
+        assert reg[code]["group"] == PROV_GROUP[code]
+    # group registry: fiber-collision merges collided + zhost; every code covered once
+    grp = group_registry()
+    assert PROV["zhost"] in grp["completed:fiber-collision"]["codes"]
+    assert PROV["collided"] in grp["completed:fiber-collision"]["codes"]
+    covered = [c for meta in grp.values() for c in meta["codes"]]
+    assert sorted(covered) == sorted(PROV.values())          # partition, no gaps/dupes
+    # group colour matches its representative code's colour (kept palette)
+    assert grp["completed:fiber-collision"]["color"] == PROV_COLOR[PROV["collided"]]

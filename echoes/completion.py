@@ -308,6 +308,17 @@ PROV_DESCRIPTION = {
 }
 
 
+# colour per coarse group (the representative code's colour) + display order, for
+# the "colour by origin" view that merges host-z fallback into fiber-collision.
+PROV_GROUP_COLOR = {
+    "observed": PROV_COLOR[PROV["observed"]],
+    "completed:fiber-collision": PROV_COLOR[PROV["collided"]],
+    "completed:redshift-failure": PROV_COLOR[PROV["zfail"]],
+    "inpainted:imaging-systematic": PROV_COLOR[PROV["systot"]],
+    "inpainted:mask-hole": PROV_COLOR[PROV["inpaint"]],
+}
+
+
 def prov_registry():
     """Canonical per-code provenance metadata for visualizers / data products:
     ``{code: {short_label, label, description, color, group}}``. The interactive
@@ -317,6 +328,17 @@ def prov_registry():
                    "description": PROV_DESCRIPTION[code], "color": PROV_COLOR[code],
                    "group": PROV_GROUP[code]}
             for code in sorted(PROV.values())}
+
+
+def group_registry():
+    """Canonical per-group metadata ``{group: {label, color, codes}}`` for the
+    "colour by origin" view — the coarse observed / completed:fiber-collision /
+    completed:redshift-failure / inpainted split. Order matches PROV_GROUP_COLOR."""
+    out = {}
+    for g, color in PROV_GROUP_COLOR.items():
+        out[g] = {"label": g.replace(":", " — "), "color": color,
+                  "codes": [c for c in sorted(PROV.values()) if PROV_GROUP[c] == g]}
+    return out
 
 
 def _systot_restore_extras(base_ra, base_dec, base_z, src, rng, jitter_arcsec=1.0):
