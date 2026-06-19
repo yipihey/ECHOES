@@ -347,6 +347,8 @@ def complete_catalog_photoz(
     z_mode: str = "field",
     gp_field=None,
     gp_kwargs=None,
+    field_ctx=None,
+    fieldpost_kwargs=None,
     verbose: bool = False,
 ):
     """Equal-weight completion using REAL imaging positions + photo-z redshifts.
@@ -488,6 +490,21 @@ def complete_catalog_photoz(
             draw_index = seed % gp_field.n_samples
         z_miss, zhost_fallback = _graphgp_zmiss(targets, photoz, dz_pool, gp_field, draw_index,
                                                 z_o, z_host, miss_kind, rng)
+    elif z_mode == "fieldpost":
+        # FIELD-LEVEL CONDITIONAL POSTERIOR (the real thing): each missing redshift is
+        # drawn from the proper GP posterior of the overdensity field along its
+        # sightline, conditioned on the nearby observed galaxies through the
+        # log-Gaussian-Cox-process linearization (echoes.fieldpost). Unlike 'field'/
+        # 'knn2d' (fixed-aperture/K-nearest local density) it carries the field's full
+        # correlation structure and reverts via the kernel in data-poor stretches.
+        # Pass a precomputed field_ctx to amortise the ξ→kernel measurement across an
+        # ensemble; else build one. fieldpost_kwargs overrides the build.
+        from .fieldpost import build_field_context, _fieldpost_zmiss
+        if field_ctx is None:
+            field_ctx = build_field_context(catalog, seed=seed, **(fieldpost_kwargs or {}))
+        draw_index = seed % max(1, getattr(field_ctx, "n_samples", 1))
+        z_miss, zhost_fallback = _fieldpost_zmiss(targets, photoz, dz_pool, field_ctx,
+                                                  draw_index, z_o, z_host, miss_kind, rng)
     else:
         # 'photoz': per-object redshift from p(z|colours) × close-pair prior (more
         # realistic per-object z, but LOS-smeared — degrades 3-D redshift-space clustering).

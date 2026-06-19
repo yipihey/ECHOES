@@ -51,14 +51,26 @@ def _as_cov(cov):
 
 
 def _cov_matrix(cov, A, B):
-    """Exact kernel cross-covariance K(A, B) via graphgp, returned as numpy."""
+    """Exact kernel cross-covariance K(A, B), returned as a writable numpy array.
+
+    For the tabulated isotropic ``(cov_bins, cov_vals)`` kernel this is a pure
+    numpy distance-lookup (``np.interp``, identical to graphgp's ``cov_lookup``)
+    — much faster than dispatching jax per call inside the per-sightline loop.
+    Non-tuple covariances (e.g. ``AnisotropicCovariance``) fall back to graphgp.
+    """
+    A = np.ascontiguousarray(A, np.float64)
+    B = np.ascontiguousarray(B, np.float64)
+    if isinstance(cov, (tuple, list)) and len(cov) == 2:
+        bins = np.asarray(cov[0], np.float64)
+        vals = np.asarray(cov[1], np.float64)
+        d = np.linalg.norm(A[:, None, :] - B[None, :, :], axis=-1)
+        return np.interp(d.ravel(), bins, vals).reshape(d.shape)
     import jax
     jax.config.update("jax_enable_x64", True)
     import jax.numpy as jnp
     from graphgp import compute_cov_matrix
-    return np.array(compute_cov_matrix(_as_cov(cov), jnp.asarray(A, dtype=jnp.float64),
-                                       jnp.asarray(B, dtype=jnp.float64)),
-                    dtype=np.float64)              # np.array copies -> writable
+    return np.array(compute_cov_matrix(_as_cov(cov), jnp.asarray(A), jnp.asarray(B)),
+                    dtype=np.float64)
 
 
 def _k0(cov) -> float:
