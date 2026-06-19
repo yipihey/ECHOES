@@ -11,7 +11,10 @@ const state = {
   realization: null,
   realizationData: null,
   catalog: null,
+  renderer: null,
+  preferredRenderer: null,
   gpu: null,
+  canvas2d: null,
   buffers: null,
   lineBuffers: null,
   needsRebuild: true,
@@ -86,18 +89,11 @@ async function main() {
     setLoading(`Fetching ${state.realization.label} chunks...`);
     state.realizationData = await loadRealization(state.realization);
 
-    if (!navigator.gpu) {
-      els.unsupported.hidden = false;
-      hideLoading();
-      setStatus("WebGPU is not available in this browser.");
-      return;
-    }
-
-    setLoading("Initializing WebGPU renderer...");
-    state.gpu = await initGpu();
+    setLoading("Initializing renderer...");
+    await initRenderer();
     attachEvents();
     resizeCanvas();
-    setLoading("Uploading catalog to the GPU...");
+    setLoading(state.renderer === "webgpu" ? "Uploading catalog to the GPU..." : "Preparing canvas fallback...");
     rebuildScene(true);
     render();
     state.needsRender = false;
@@ -331,6 +327,8 @@ function hydrateHashState() {
   for (const key of ["coordinateMode", "projection", "colorBy", "sizeBy"]) {
     if (p.has(key)) state.settings[key] = p.get(key);
   }
+  const renderer = p.get("renderer") || new URLSearchParams(window.location.search).get("renderer");
+  if (renderer === "canvas2d") state.preferredRenderer = renderer;
 }
 
 function writeHashState() {
@@ -341,7 +339,56 @@ function writeHashState() {
   p.set("projection", state.settings.projection);
   p.set("colorBy", state.settings.colorBy);
   p.set("sizeBy", state.settings.sizeBy);
+  if (state.renderer === "canvas2d" || state.preferredRenderer === "canvas2d") p.set("renderer", "canvas2d");
   history.replaceState(null, "", `#${p.toString()}`);
+}
+
+async function initRenderer() {
+  state.gpu = null;
+  state.canvas2d = null;
+  state.buffers = null;
+  state.lineBuffers = null;
+  if (state.preferredRenderer === "canvas2d") {
+    initCanvasFallback("forced by URL");
+    return;
+  }
+  if (!navigator.gpu) {
+    initCanvasFallback("WebGPU is not available in this browser");
+    return;
+  }
+  try {
+    state.gpu = await initGpu();
+    state.renderer = "webgpu";
+    state.gpu.device.lost.then(info => {
+      if (state.renderer !== "webgpu") return;
+      console.warn("WebGPU device lost; switching to canvas fallback.", info);
+      initCanvasFallback(`WebGPU device lost: ${info.message || info.reason || "unknown reason"}`);
+      rebuildScene(false);
+      render();
+    });
+  } catch (err) {
+    console.warn("WebGPU initialization failed; switching to canvas fallback.", err);
+    initCanvasFallback(err.message || String(err));
+  }
+}
+
+function initCanvasFallback(reason) {
+  state.renderer = "canvas2d";
+  state.gpu = null;
+  state.buffers = null;
+  state.lineBuffers = null;
+  let ctx = els.scene.getContext("2d", { alpha: false });
+  if (!ctx) {
+    const replacement = els.scene.cloneNode(false);
+    replacement.width = els.scene.width;
+    replacement.height = els.scene.height;
+    els.scene.replaceWith(replacement);
+    els.scene = replacement;
+    ctx = els.scene.getContext("2d", { alpha: false });
+  }
+  if (!ctx) throw new Error(`Canvas fallback is unavailable after WebGPU failure: ${reason}`);
+  state.canvas2d = ctx;
+  setStatus(`Canvas fallback active: ${reason}.`);
 }
 
 async function initGpu() {
@@ -417,38 +464,45 @@ async function initGpu() {
 }
 
 function resizeCanvas() {
-  if (!state.gpu) return;
   const ratio = Math.min(window.devicePixelRatio || 1, 2);
   const width = Math.max(1, Math.floor(els.scene.clientWidth * ratio));
   const height = Math.max(1, Math.floor(els.scene.clientHeight * ratio));
   if (els.scene.width === width && els.scene.height === height) return;
   els.scene.width = width;
   els.scene.height = height;
-  state.gpu.context.configure({
-    device: state.gpu.device,
-    format: state.gpu.format,
-    alphaMode: "opaque",
-  });
-  state.gpu.depthTexture = state.gpu.device.createTexture({
-    size: [width, height],
-    format: "depth24plus",
-    usage: GPUTextureUsage.RENDER_ATTACHMENT,
-  });
+  if (state.renderer === "webgpu" && state.gpu) {
+    state.gpu.context.configure({
+      device: state.gpu.device,
+      format: state.gpu.format,
+      alphaMode: "opaque",
+    });
+    state.gpu.depthTexture = state.gpu.device.createTexture({
+      size: [width, height],
+      format: "depth24plus",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+  }
   state.needsRender = true;
 }
 
 function rebuildScene(refit) {
-  if (!state.base || !state.realizationData || !state.gpu) return;
+  if (!state.base || !state.realizationData || !state.renderer) return;
   writeHashState();
   const catalog = assembleCatalog();
   state.catalog = catalog;
   state.bounds = computeBounds(catalog.positions);
   if (refit || !state.camera.hasFit) fitCamera();
-  uploadPointBuffers(catalog);
-  buildGridBuffers();
+  if (state.renderer === "webgpu") {
+    uploadPointBuffers(catalog);
+    buildGridBuffers();
+  } else {
+    state.buffers = null;
+    state.lineBuffers = null;
+  }
   updateAxisLabels();
   renderLegend();
   setStatus(statusText(catalog));
+  updateDiagnostics("scene-ready");
   state.needsRender = true;
 }
 
@@ -794,7 +848,7 @@ function ticks(lo, hi, n) {
 }
 
 function frame() {
-  if (state.gpu && state.buffers && state.needsRender) {
+  if (state.catalog && state.needsRender) {
     render();
     state.needsRender = false;
   }
@@ -802,6 +856,11 @@ function frame() {
 }
 
 function render() {
+  if (state.renderer === "canvas2d") {
+    renderCanvas2d();
+    return;
+  }
+  if (!state.gpu || !state.buffers) return;
   resizeCanvas();
   const gpu = state.gpu;
   const device = gpu.device;
@@ -847,6 +906,58 @@ function render() {
   pass.end();
   device.queue.submit([encoder.finish()]);
   updateAxisLabels();
+}
+
+function renderCanvas2d() {
+  resizeCanvas();
+  const ctx = state.canvas2d;
+  if (!ctx || !state.catalog) return;
+  const ratio = Math.max(1, els.scene.width / Math.max(els.scene.clientWidth, 1));
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#090b0d";
+  ctx.fillRect(0, 0, els.scene.width, els.scene.height);
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+  const viewProj = computeViewProjection();
+  state.lastViewProj = viewProj;
+  if (state.settings.showGrid && state.bounds) drawCanvasGrid(ctx, viewProj);
+
+  const { positions, colors, count } = state.catalog;
+  for (let i = 0; i < count; i++) {
+    const p = i * 4;
+    const s = projectToScreen([positions[p], positions[p + 1], positions[p + 2]], viewProj);
+    if (!s) continue;
+    const c = colors.subarray(p, p + 4);
+    if (c[3] <= 0) continue;
+    const size = Math.max(1, positions[p + 3] * state.settings.pointScale);
+    ctx.fillStyle = rgbaCss(c);
+    ctx.fillRect(s[0] - size * 0.5, s[1] - size * 0.5, size, size);
+  }
+  updateAxisLabels();
+}
+
+function drawCanvasGrid(ctx, viewProj) {
+  const grid = makeGridLines();
+  ctx.lineWidth = 1;
+  for (let i = 0; i < grid.positions.length; i += 6) {
+    const a = projectToScreen([grid.positions[i], grid.positions[i + 1], grid.positions[i + 2]], viewProj);
+    const b = projectToScreen([grid.positions[i + 3], grid.positions[i + 4], grid.positions[i + 5]], viewProj);
+    if (!a || !b) continue;
+    const ci = (i / 3) * 4;
+    ctx.strokeStyle = rgbaCss(grid.colors.slice(ci, ci + 4));
+    ctx.beginPath();
+    ctx.moveTo(a[0], a[1]);
+    ctx.lineTo(b[0], b[1]);
+    ctx.stroke();
+  }
+}
+
+function rgbaCss(c) {
+  const r = Math.max(0, Math.min(255, Math.round(c[0] * 255)));
+  const g = Math.max(0, Math.min(255, Math.round(c[1] * 255)));
+  const b = Math.max(0, Math.min(255, Math.round(c[2] * 255)));
+  const a = Math.max(0, Math.min(1, c[3]));
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
 }
 
 function computeViewProjection() {
@@ -1054,6 +1165,7 @@ function showLoadError(err) {
   console.error(err);
   setStatus(`Error: ${err.message}`);
   setLoading(`Error: ${err.message}`);
+  updateDiagnostics("error", err);
 }
 
 function hideLoading() {
@@ -1062,7 +1174,21 @@ function hideLoading() {
 
 function statusText(catalog) {
   const r = state.realization;
-  return `<strong>${catalog.count.toLocaleString()}</strong> visible of ${r.total_count.toLocaleString()} in ${state.method.label}, ${r.label}.`;
+  const renderer = state.renderer === "canvas2d" ? "Canvas fallback" : "WebGPU";
+  return `<strong>${catalog.count.toLocaleString()}</strong> visible of ${r.total_count.toLocaleString()} in ${state.method.label}, ${r.label}. Renderer: ${renderer}.`;
+}
+
+function updateDiagnostics(stage, err = null) {
+  window.__echoesDiagnostics = {
+    stage,
+    renderer: state.renderer,
+    preferredRenderer: state.preferredRenderer,
+    method: state.method?.id,
+    realization: state.realization?.id,
+    visibleCount: state.catalog?.count ?? null,
+    webgpuAvailable: Boolean(navigator.gpu),
+    error: err ? String(err.message || err) : null,
+  };
 }
 
 function updateCosmologyText() {
