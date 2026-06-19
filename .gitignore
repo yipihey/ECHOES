@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.ipynb_checkpoints/
+# local data + caches (fetched via data/fetch_*.py; see DATA.md)
+/data/boss/
+/output/
+# latex build artifacts
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.bbl
+paper/*.blg
+paper/*.fls
+paper/*.fdb_latexmk
+paper/*Notes.bib
+.pytest_cache/
+.DS_Store

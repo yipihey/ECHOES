@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+title: "ECHOES: Equal-weight Completed Hypothetical Observation Ensembles for BOSS DR12 CMASS-South"
+message: "If you use ECHOES, please cite the paper and the data DOI."
+type: software
+authors:
+  - family-names: Abel
+    given-names: Tom
+    affiliation: "Kavli Institute for Particle Astrophysics and Cosmology, Stanford University"
+    email: tabel@stanford.edu
+repository-code: "https://github.com/yipihey/ECHOES"
+license: MIT
+version: "0.1.0"
+keywords: [cosmology, galaxy surveys, large-scale structure, BOSS, astrostatistics]
+references:
+  - type: data
+    title: "ECHOES completed-catalog posterior products for BOSS DR12 CMASS-South"
+    doi: "10.5281/zenodo.XXXXXXX"
+    authors:
+      - family-names: Abel
+        given-names: Tom

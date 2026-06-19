@@ -1,0 +1,19 @@
+# Reproducible environment for the ECHOES pipeline (completion + validation + report).
+# conda env create -f environment.yml && conda activate echoes && pip install -e .[all]
+name: echoes
+channels: [conda-forge]
+dependencies:
+  - python=3.11
+  - numpy=2.2.2
+  - scipy=1.15.1
+  - astropy=7.2.0
+  - healpy=1.19.0
+  - matplotlib=3.10.0
+  - numba=0.65.1
+  - pip
+  - pip:
+      - Corrfunc==2.5.3
+      - astroquery==0.4.11
+      # graphGP engine (optional): pip install -e .[graphgp]
+      - jax==0.10.1
+      # report (optional): veusz, PyQt6 ; mask (optional): pymangle==0.9.4

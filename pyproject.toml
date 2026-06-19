@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "echoes"
+version = "0.1.0"
+description = "ECHOES: Equal-weight Completed Hypothetical Observation Ensembles — survey-ready posterior samples of completed galaxy catalogs"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Tom Abel", email = "tabel@stanford.edu"}]
+keywords = ["cosmology", "galaxy surveys", "large-scale structure", "BOSS", "astrostatistics"]
+classifiers = [
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Astronomy",
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+]
+# Core: the default KNN-field completion + the released numpy sampler need only
+# numpy at runtime; the validation/measurement layer adds the rest.
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "astropy>=5.3",
+  "healpy>=1.16",
+  "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+# Standard projected/multipole clustering measurements (Corrfunc).
+clustering = ["Corrfunc>=2.5", "numba>=0.58"]
+# graphGP conditional-field engine (optional, correlated posterior).
+graphgp = [
+  "graphgp @ git+https://github.com/yipihey/graphgp@hierarchical-chunked-generation",
+  "jax>=0.4", "h5py>=3.8",
+]
+# One-time uniform-randoms generation from the survey mangle mask.
+mask = ["pymangle>=0.9.4"]
+# Building the interactive Veusz HTML report.
+report = ["veusz>=3.6", "PyQt6>=6.5"]
+# Fetching imaging targets / Gaia bright stars.
+fetch = ["astroquery>=0.4.7"]
+dev = ["pytest>=7"]
+all = ["echoes[clustering,graphgp,mask,report,fetch,dev]"]
+
+[project.urls]
+Homepage = "https://github.com/yipihey/ECHOES"
+Report = "https://yipihey.github.io/ECHOES/report.html"
+Repository = "https://github.com/yipihey/ECHOES"
+
+[project.scripts]
+echoes-draw = "echoes.cli:draw_main"
+
+[tool.setuptools.packages.find]
+include = ["echoes*"]

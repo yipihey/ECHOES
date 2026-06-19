@@ -1,0 +1,42 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ECHOES — completed galaxy-survey catalogs</title>
+<style>
+ body{font-family:-apple-system,"Helvetica Neue",Arial,sans-serif;max-width:820px;margin:0 auto;
+  padding:0 20px 80px;color:#222;line-height:1.65}
+ h1{font-size:40px;letter-spacing:2px;margin:40px 0 0} .tag{color:#777;font-size:18px;margin:4px 0 22px}
+ a{color:#3a6ea8;text-decoration:none} a:hover{text-decoration:underline}
+ .cards{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:24px 0}
+ .card{border:1px solid #e3e3e3;border-radius:10px;padding:16px 18px;background:#fafcff}
+ .card h3{margin:0 0 4px} code{background:#eef;padding:1px 6px;border-radius:3px;font-size:13px}
+ pre{background:#f5f5f5;padding:12px 14px;border-radius:8px;overflow-x:auto}
+</style></head><body>
+<h1>ECHOES</h1>
+<div class="tag">Equal-weight Completed Hypothetical Observation Ensembles</div>
+<p>ECHOES turns a spectroscopic galaxy survey into an ensemble of <b>equal-weight,
+cosmology-free completed catalogs</b>: observed galaxies are kept, and the
+spectroscopically-missing galaxies are restored at their real imaging positions with
+data-driven redshifts. Run any clustering statistic — two-point, higher-order, marked,
+nearest-neighbor, topological, field-level — directly on completed point catalogs and
+propagate the completion uncertainty by resampling. The first release completes
+<b>BOSS DR12 CMASS-South</b>.</p>
+<div class="cards">
+  <div class="card"><h3>📊 <a href="report.html">Interactive report</a></h3>
+    Browser-editable figures: data, photo-z, completion, validation, the two engines.</div>
+  <div class="card"><h3>📄 <a href="../paper/boss_completion_apj_draft.pdf">Paper</a></h3>
+    ECHOES for BOSS DR12 CMASS-South (emulateapj).</div>
+  <div class="card"><h3>📚 <a href="method.md">Method walkthrough</a></h3>
+    A pedagogical, equation-light tour — more verbose than the paper.</div>
+  <div class="card"><h3>📦 <a href="../DATA.md">Data</a></h3>
+    Products, public inputs, and how to get them.</div>
+  <div class="card"><h3>🧪 <a href="tutorials/">Tutorials</a></h3>
+    Draw samples; complete a survey; the graphGP engine; a custom statistic.</div>
+  <div class="card"><h3>➕ <a href="adding_a_survey.md">Add a survey</a></h3>
+    The Survey interface and a worked checklist.</div>
+</div>
+<h3>Draw catalogs in three lines</h3>
+<pre>pip install git+https://github.com/yipihey/ECHOES
+echoes-draw --seed 0 --out catalog_0.fits        # one ~120k-galaxy realization
+# or: from echoes import load_package, draw</pre>
+<p style="color:#777"><a href="https://github.com/yipihey/ECHOES">github.com/yipihey/ECHOES</a> · MIT</p>
+</body></html>
