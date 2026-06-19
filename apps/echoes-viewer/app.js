@@ -13,10 +13,14 @@ const state = {
   catalog: null,
   renderer: null,
   preferredRenderer: null,
+  rendererNote: null,
   gpu: null,
   canvas2d: null,
   buffers: null,
   lineBuffers: null,
+  activeCanvas: null,
+  blankCheckId: 0,
+  blankCheck: null,
   needsRebuild: true,
   needsRender: true,
   blinking: false,
@@ -62,7 +66,7 @@ function setupElements() {
   for (const id of [
     "app", "scene", "labels", "unsupported", "methodSelect", "realizationSelect",
     "loadingOverlay", "loadingText",
-    "coordinateSelect", "projectionSelect", "colorBy", "sizeBy", "showObserved",
+    "rendererSelect", "coordinateSelect", "projectionSelect", "colorBy", "sizeBy", "showObserved",
     "showEchoes", "zSlab", "pointScale", "opacity", "showGrid", "showLabels",
     "gridOpacity", "labelSize", "blinkRate", "blinkBtn", "shotBtn", "fullBtn",
     "hideBtn", "status", "cosmo", "legend",
@@ -96,6 +100,7 @@ async function main() {
     setLoading(state.renderer === "webgpu" ? "Uploading catalog to the GPU..." : "Preparing canvas fallback...");
     rebuildScene(true);
     render();
+    scheduleWebGpuBlankCheck("initial render");
     state.needsRender = false;
     hideLoading();
     window.__echoesReady = true;
@@ -198,6 +203,7 @@ function populateControls() {
   controls.colorBy.value = state.settings.colorBy;
   controls.sizeBy.value = state.settings.sizeBy;
 
+  controls.rendererSelect.value = state.preferredRenderer || "auto";
   controls.coordinateSelect.value = state.settings.coordinateMode;
   controls.projectionSelect.value = state.settings.projection;
   controls.showObserved.checked = state.settings.showObserved;
@@ -256,6 +262,22 @@ function attachEvents() {
     }
   });
 
+  els.rendererSelect.addEventListener("change", async () => {
+    try {
+      state.preferredRenderer = els.rendererSelect.value;
+      setStatus("Switching renderer...");
+      setLoading("Switching renderer...");
+      await initRenderer();
+      resizeCanvas();
+      rebuildScene(false);
+      render();
+      scheduleWebGpuBlankCheck("manual renderer switch");
+      hideLoading();
+    } catch (err) {
+      showLoadError(err);
+    }
+  });
+
   const settingInputs = [
     ["coordinateSelect", "coordinateMode", true],
     ["projectionSelect", "projection", true],
@@ -297,12 +319,29 @@ function attachEvents() {
     }
   });
 
+  attachCanvasEvents();
+}
+
+function attachCanvasEvents() {
+  if (state.activeCanvas === els.scene) return;
   const canvas = els.scene;
   canvas.addEventListener("pointerdown", onPointerDown);
   canvas.addEventListener("pointermove", onPointerMove);
   canvas.addEventListener("pointerup", onPointerUp);
   canvas.addEventListener("pointercancel", onPointerUp);
   canvas.addEventListener("wheel", onWheel, { passive: false });
+  state.activeCanvas = canvas;
+}
+
+function resetSceneCanvas() {
+  const replacement = els.scene.cloneNode(false);
+  replacement.width = els.scene.width;
+  replacement.height = els.scene.height;
+  els.scene.replaceWith(replacement);
+  els.scene = replacement;
+  state.activeCanvas = null;
+  attachCanvasEvents();
+  return replacement;
 }
 
 function parseSetting(value, current) {
@@ -312,8 +351,8 @@ function parseSetting(value, current) {
 
 function hydrateHashState() {
   const raw = window.location.hash.replace(/^#/, "");
-  if (!raw) return;
   const p = new URLSearchParams(raw);
+  const q = new URLSearchParams(window.location.search);
   const methodId = p.get("method");
   const realizationId = p.get("realization");
   if (methodId) {
@@ -327,8 +366,8 @@ function hydrateHashState() {
   for (const key of ["coordinateMode", "projection", "colorBy", "sizeBy"]) {
     if (p.has(key)) state.settings[key] = p.get(key);
   }
-  const renderer = p.get("renderer") || new URLSearchParams(window.location.search).get("renderer");
-  if (renderer === "canvas2d") state.preferredRenderer = renderer;
+  const renderer = p.get("renderer") || q.get("renderer");
+  if (["auto", "webgpu", "canvas2d"].includes(renderer)) state.preferredRenderer = renderer;
 }
 
 function writeHashState() {
@@ -339,17 +378,22 @@ function writeHashState() {
   p.set("projection", state.settings.projection);
   p.set("colorBy", state.settings.colorBy);
   p.set("sizeBy", state.settings.sizeBy);
-  if (state.renderer === "canvas2d" || state.preferredRenderer === "canvas2d") p.set("renderer", "canvas2d");
+  const rendererPref = state.preferredRenderer || "auto";
+  if (rendererPref !== "auto") p.set("renderer", rendererPref);
+  else if (state.renderer === "canvas2d") p.set("renderer", "canvas2d");
   history.replaceState(null, "", `#${p.toString()}`);
 }
 
 async function initRenderer() {
+  const requested = state.preferredRenderer || "auto";
+  state.blankCheckId++;
   state.gpu = null;
   state.canvas2d = null;
   state.buffers = null;
   state.lineBuffers = null;
-  if (state.preferredRenderer === "canvas2d") {
-    initCanvasFallback("forced by URL");
+  state.rendererNote = null;
+  if (requested === "canvas2d") {
+    initCanvasFallback("selected in renderer control");
     return;
   }
   if (!navigator.gpu) {
@@ -357,8 +401,11 @@ async function initRenderer() {
     return;
   }
   try {
+    if (state.renderer === "canvas2d") resetSceneCanvas();
     state.gpu = await initGpu();
     state.renderer = "webgpu";
+    state.rendererNote = requested === "webgpu" ? "selected in renderer control" : null;
+    if (els.rendererSelect) els.rendererSelect.value = requested;
     state.gpu.device.lost.then(info => {
       if (state.renderer !== "webgpu") return;
       console.warn("WebGPU device lost; switching to canvas fallback.", info);
@@ -374,20 +421,18 @@ async function initRenderer() {
 
 function initCanvasFallback(reason) {
   state.renderer = "canvas2d";
+  state.rendererNote = reason;
   state.gpu = null;
   state.buffers = null;
   state.lineBuffers = null;
   let ctx = els.scene.getContext("2d", { alpha: false });
   if (!ctx) {
-    const replacement = els.scene.cloneNode(false);
-    replacement.width = els.scene.width;
-    replacement.height = els.scene.height;
-    els.scene.replaceWith(replacement);
-    els.scene = replacement;
+    resetSceneCanvas();
     ctx = els.scene.getContext("2d", { alpha: false });
   }
   if (!ctx) throw new Error(`Canvas fallback is unavailable after WebGPU failure: ${reason}`);
   state.canvas2d = ctx;
+  if (els.rendererSelect && state.preferredRenderer !== "webgpu") els.rendererSelect.value = "canvas2d";
   setStatus(`Canvas fallback active: ${reason}.`);
 }
 
@@ -396,6 +441,7 @@ async function initGpu() {
   if (!adapter) throw new Error("no WebGPU adapter available");
   const device = await adapter.requestDevice();
   const context = els.scene.getContext("webgpu");
+  if (!context) throw new Error("could not acquire WebGPU canvas context");
   const format = navigator.gpu.getPreferredCanvasFormat();
 
   const shader = device.createShaderModule({ code: pointShader() });
@@ -504,6 +550,7 @@ function rebuildScene(refit) {
   setStatus(statusText(catalog));
   updateDiagnostics("scene-ready");
   state.needsRender = true;
+  scheduleWebGpuBlankCheck("scene rebuild");
 }
 
 function assembleCatalog() {
@@ -936,6 +983,70 @@ function renderCanvas2d() {
   updateAxisLabels();
 }
 
+function scheduleWebGpuBlankCheck(reason) {
+  if (state.renderer !== "webgpu" || !state.catalog?.count) return;
+  const checkId = ++state.blankCheckId;
+  window.setTimeout(async () => {
+    if (checkId !== state.blankCheckId || state.renderer !== "webgpu" || !state.catalog?.count) return;
+    try {
+      const probe = await probeCanvasVisibility();
+      state.blankCheck = probe;
+      updateDiagnostics("webgpu-frame-check");
+      if (probe.visible) return;
+      console.warn("WebGPU produced a blank frame; switching to Canvas2D fallback.", probe);
+      state.preferredRenderer = "canvas2d";
+      if (els.rendererSelect) els.rendererSelect.value = "canvas2d";
+      initCanvasFallback(`blank WebGPU frame after ${reason}; ${probe.reason}`);
+      rebuildScene(false);
+      render();
+      hideLoading();
+    } catch (err) {
+      console.warn("Could not inspect WebGPU frame; switching to Canvas2D fallback.", err);
+      state.blankCheck = { visible: false, reason: err.message || String(err) };
+      state.preferredRenderer = "canvas2d";
+      if (els.rendererSelect) els.rendererSelect.value = "canvas2d";
+      initCanvasFallback(`WebGPU frame could not be inspected: ${err.message || err}`);
+      rebuildScene(false);
+      render();
+      hideLoading();
+    }
+  }, 700);
+}
+
+async function probeCanvasVisibility() {
+  const blob = await new Promise(resolve => els.scene.toBlob(resolve, "image/png"));
+  if (!blob) return { visible: false, reason: "canvas snapshot was empty", changedPixels: 0, brightPixels: 0 };
+  const bitmap = await createImageBitmap(blob);
+  const sample = document.createElement("canvas");
+  sample.width = 96;
+  sample.height = Math.max(1, Math.round(96 * bitmap.height / Math.max(1, bitmap.width)));
+  const ctx = sample.getContext("2d", { willReadFrequently: true });
+  if (!ctx) {
+    bitmap.close?.();
+    return { visible: false, reason: "2D sampler was unavailable", changedPixels: 0, brightPixels: 0 };
+  }
+  ctx.drawImage(bitmap, 0, 0, sample.width, sample.height);
+  bitmap.close?.();
+  const data = ctx.getImageData(0, 0, sample.width, sample.height).data;
+  let changedPixels = 0;
+  let brightPixels = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const diff = Math.abs(r - 9) + Math.abs(g - 11) + Math.abs(b - 13);
+    if (diff > 24) changedPixels++;
+    if (r + g + b > 80) brightPixels++;
+  }
+  const visible = changedPixels > 20 || brightPixels > 20;
+  return {
+    visible,
+    reason: visible ? "non-background pixels detected" : "only background pixels detected",
+    changedPixels,
+    brightPixels,
+  };
+}
+
 function drawCanvasGrid(ctx, viewProj) {
   const grid = makeGridLines();
   ctx.lineWidth = 1;
@@ -1175,7 +1286,8 @@ function hideLoading() {
 function statusText(catalog) {
   const r = state.realization;
   const renderer = state.renderer === "canvas2d" ? "Canvas fallback" : "WebGPU";
-  return `<strong>${catalog.count.toLocaleString()}</strong> visible of ${r.total_count.toLocaleString()} in ${state.method.label}, ${r.label}. Renderer: ${renderer}.`;
+  const note = state.rendererNote ? ` (${state.rendererNote})` : "";
+  return `<strong>${catalog.count.toLocaleString()}</strong> visible of ${r.total_count.toLocaleString()} in ${state.method.label}, ${r.label}. Renderer: ${renderer}${note}.`;
 }
 
 function updateDiagnostics(stage, err = null) {
@@ -1183,10 +1295,12 @@ function updateDiagnostics(stage, err = null) {
     stage,
     renderer: state.renderer,
     preferredRenderer: state.preferredRenderer,
+    rendererNote: state.rendererNote,
     method: state.method?.id,
     realization: state.realization?.id,
     visibleCount: state.catalog?.count ?? null,
     webgpuAvailable: Boolean(navigator.gpu),
+    blankCheck: state.blankCheck,
     error: err ? String(err.message || err) : null,
   };
 }
