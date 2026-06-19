@@ -155,3 +155,41 @@ def gp_sample_dense(
         resid = y_data + sig * rng.standard_normal(nd) - f_D
         out[s] = f_star + K_sD @ _chol_solve(cA, resid)
     return out
+
+
+def conditional_overdensity_los(
+    x_obs: np.ndarray,
+    nbar_obs,
+    x_pred: np.ndarray,
+    cov,
+    *,
+    n_samples: int = 0,
+    seed: int = 0,
+    jitter: float = 1e-6,
+):
+    """Posterior ``1+δ`` at prediction points, conditioned on observed galaxy
+    positions via the Gaussian-linearized point (Poisson) model.
+
+    Each observed galaxy is a linearized observation of the overdensity field at
+    its position, ``y_i = 1/n̄_i − 1`` with variance ``N_i = 1/n̄_i`` (the
+    log-Gaussian-Cox-process linearization), where ``n̄_i`` is the local mean
+    galaxy density (galaxies per unit volume in the same coordinates as ``cov``).
+    The GP posterior of δ at ``x_pred`` then carries the field's correlation
+    structure and a *calibrated* uncertainty — the properties a local-density
+    estimate lacks — and extends into data-poor stretches via the kernel rather
+    than reverting blindly to the mean.
+
+    Returns ``(opd_mean, opd_var)`` (both ``(N_*,)``), and, if ``n_samples>0``,
+    also ``opd_samples`` ``(n_samples, N_*)`` (Matheron draws). All ``1+δ`` are
+    floored at 0.
+    """
+    nbar = np.broadcast_to(np.asarray(nbar_obs, np.float64), (len(x_obs),))
+    y = 1.0 / nbar - 1.0
+    nv = 1.0 / nbar
+    mean, var = gp_posterior_dense(x_obs, y, nv, x_pred, cov, jitter=jitter)
+    opd_mean = np.clip(1.0 + mean, 0.0, None)
+    if n_samples <= 0:
+        return opd_mean, var
+    S = gp_sample_dense(x_obs, y, nv, x_pred, cov, n_samples=n_samples, seed=seed,
+                        jitter=jitter)
+    return opd_mean, var, np.clip(1.0 + S, 0.0, None)

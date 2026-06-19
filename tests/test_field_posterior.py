@@ -81,3 +81,19 @@ def test_recovers_truth_near_data():
     assert near.sum() > 10
     rms_near = np.sqrt(np.mean((mean[near] - f_pred[near]) ** 2))
     assert rms_near < 0.4 * np.sqrt(_k0(cov))
+
+
+def test_conditional_overdensity_captures_structure():
+    from echoes.field_posterior import conditional_overdensity_los
+    cov = (np.linspace(0, 40, 500), np.exp(-(np.linspace(0, 40, 500) / 6.0) ** 1.5))
+    rng = np.random.default_rng(0)
+    clump = rng.normal(0, 2.5, (80, 3))            # an overdense clump at the origin
+    bg = rng.uniform(-30, 30, (120, 3))            # sparse background
+    x_obs = np.vstack([clump, bg]); nbar = len(x_obs) / 60.0 ** 3
+    xp = np.zeros((40, 3)); xp[:, 0] = np.linspace(0, 45, 40)
+    opd, var = conditional_overdensity_los(x_obs, nbar, xp, cov)
+    d = xp[:, 0]
+    # 1+δ is strongly elevated at the clump and reverts toward 1 far away
+    assert opd[d < 6].mean() > 5.0 * opd[d > 30].mean()
+    assert opd[d > 40].max() < 1.5
+    assert np.all(np.isfinite(var)) and np.all(var >= 0)
