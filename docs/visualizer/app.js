@@ -1,5 +1,6 @@
 const MANIFEST_URL = "data/viewer_manifest.json";
 const TWO_PI = Math.PI * 2;
+const FETCH_TIMEOUT_MS = 60000;
 
 const els = {};
 const state = {
@@ -104,27 +105,52 @@ async function main() {
     window.__echoesReady = true;
     requestAnimationFrame(frame);
   } catch (err) {
-    console.error(err);
-    setStatus(`Error: ${err.message}`);
-    setLoading(`Error: ${err.message}`);
+    showLoadError(err);
   }
 }
 
 async function fetchJson(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`failed to load ${url}: ${res.status}`);
+  const res = await fetchWithTimeout(url, "viewer manifest");
   return res.json();
 }
 
 async function fetchArray(desc) {
   const url = new URL(desc.file, state.manifestUrl);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`failed to load ${url}: ${res.status}`);
+  const label = desc.file || url.toString();
+  setLoading(`Fetching ${label}...`);
+  const res = await fetchWithTimeout(url, label);
   const buf = await res.arrayBuffer();
+  if (typeof desc.bytes === "number" && buf.byteLength !== desc.bytes) {
+    throw new Error(`wrong byte count for ${label}: expected ${desc.bytes}, got ${buf.byteLength}`);
+  }
   const dtype = desc.dtype;
-  if (dtype === "<f4" || dtype === "|f4") return new Float32Array(buf);
-  if (dtype === "|u1" || dtype === "u1") return new Uint8Array(buf);
-  throw new Error(`unsupported viewer dtype ${dtype}`);
+  let arr;
+  if (dtype === "<f4" || dtype === "|f4") arr = new Float32Array(buf);
+  else if (dtype === "|u1" || dtype === "u1") arr = new Uint8Array(buf);
+  else throw new Error(`unsupported viewer dtype ${dtype} for ${label}`);
+  if (typeof desc.count === "number" && arr.length !== desc.count) {
+    throw new Error(`wrong element count for ${label}: expected ${desc.count}, got ${arr.length}`);
+  }
+  return arr;
+}
+
+async function fetchWithTimeout(url, label, timeoutMs = FETCH_TIMEOUT_MS) {
+  const ctrl = new AbortController();
+  const timer = window.setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal, cache: "default" });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} ${res.statusText}`.trim());
+    }
+    return res;
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error(`timed out loading ${label} after ${Math.round(timeoutMs / 1000)}s (${url})`);
+    }
+    throw new Error(`failed to load ${label}: ${err.message} (${url})`);
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 async function loadBaseColumns() {
@@ -205,19 +231,33 @@ function attachEvents() {
   });
 
   els.methodSelect.addEventListener("change", async () => {
-    state.method = state.manifest.methods.find(m => m.id === els.methodSelect.value);
-    state.realization = state.method.realizations[0];
-    populateRealizations();
-    setStatus("Loading method realization...");
-    state.realizationData = await loadRealization(state.realization);
-    rebuildScene(true);
+    try {
+      state.method = state.manifest.methods.find(m => m.id === els.methodSelect.value);
+      if (!state.method) throw new Error(`unknown method ${els.methodSelect.value}`);
+      state.realization = state.method.realizations[0];
+      populateRealizations();
+      setStatus("Loading method realization...");
+      setLoading(`Fetching ${state.realization.label} chunks...`);
+      state.realizationData = await loadRealization(state.realization);
+      rebuildScene(true);
+      hideLoading();
+    } catch (err) {
+      showLoadError(err);
+    }
   });
 
   els.realizationSelect.addEventListener("change", async () => {
-    state.realization = state.method.realizations.find(r => r.id === els.realizationSelect.value);
-    setStatus("Loading realization...");
-    state.realizationData = await loadRealization(state.realization);
-    rebuildScene(false);
+    try {
+      state.realization = state.method.realizations.find(r => r.id === els.realizationSelect.value);
+      if (!state.realization) throw new Error(`unknown realization ${els.realizationSelect.value}`);
+      setStatus("Loading realization...");
+      setLoading(`Fetching ${state.realization.label} chunks...`);
+      state.realizationData = await loadRealization(state.realization);
+      rebuildScene(false);
+      hideLoading();
+    } catch (err) {
+      showLoadError(err);
+    }
   });
 
   const settingInputs = [
@@ -1008,6 +1048,12 @@ function setLoading(text) {
   if (!els.loadingOverlay) return;
   els.loadingOverlay.hidden = false;
   els.loadingText.textContent = text;
+}
+
+function showLoadError(err) {
+  console.error(err);
+  setStatus(`Error: ${err.message}`);
+  setLoading(`Error: ${err.message}`);
 }
 
 function hideLoading() {

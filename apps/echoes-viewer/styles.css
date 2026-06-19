@@ -295,6 +295,7 @@ details label {
   color: var(--muted);
   font-size: 13px;
   min-height: 20px;
+  overflow-wrap: anywhere;
 }
 
 .loading-bar {
