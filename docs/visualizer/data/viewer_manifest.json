@@ -1,0 +1,523 @@
+{
+  "base": {
+    "columns": {
+      "dec": {
+        "bytes": 465652,
+        "count": 116413,
+        "dtype": "<f4",
+        "file": "base/base_dec.f32.bin",
+        "sha256": "79a52f4dd1f3d9e0f4b354a2960c4aa94e05a5d1a0edc13fcb12fdbd7b40a79e",
+        "shape": [
+          116413
+        ]
+      },
+      "observed_z": {
+        "bytes": 438544,
+        "count": 109636,
+        "dtype": "<f4",
+        "file": "base/observed_z.f32.bin",
+        "sha256": "91dfcbf0889038192e1b68adcc26b271648c1ba332dc63487d200c50ceb472e0",
+        "shape": [
+          109636
+        ]
+      },
+      "provenance": {
+        "bytes": 116413,
+        "count": 116413,
+        "dtype": "|u1",
+        "file": "base/base_provenance.u8.bin",
+        "sha256": "fa9f46c4d183d811e72df784aa1e19f3df71d89b237bfdd86285b85cc990e9b5",
+        "shape": [
+          116413
+        ]
+      },
+      "ra": {
+        "bytes": 465652,
+        "count": 116413,
+        "dtype": "<f4",
+        "file": "base/base_ra.f32.bin",
+        "sha256": "d3b4ec7b28dfeb58a918b07dbb9903b2ce3e72553efc0157fef1ac6af4cf6e42",
+        "shape": [
+          116413
+        ]
+      },
+      "weight_systot": {
+        "bytes": 465652,
+        "count": 116413,
+        "dtype": "<f4",
+        "file": "base/base_weight_systot.f32.bin",
+        "sha256": "7f6da88fd56696a263ee8b43bff998e18f8b17dabeabb35773cc1047ffb65b57",
+        "shape": [
+          116413
+        ]
+      }
+    },
+    "description": "Fixed observed galaxies plus fixed missing-galaxy angular positions. Observed redshifts are stored once; missing redshifts are realization-specific."
+  },
+  "columns": [
+    {
+      "id": "ra",
+      "label": "RA",
+      "max": 359.9981689453125,
+      "min": 9.090665844269097e-05,
+      "role": "coordinate",
+      "units": "deg"
+    },
+    {
+      "id": "dec",
+      "label": "Dec",
+      "max": 36.23675537109375,
+      "min": -5.999624252319336,
+      "role": "coordinate",
+      "units": "deg"
+    },
+    {
+      "id": "z",
+      "label": "redshift",
+      "max": 0.5999948382377625,
+      "min": 0.4500015676021576,
+      "role": "coordinate",
+      "units": ""
+    },
+    {
+      "id": "weight_systot",
+      "label": "WEIGHT_SYSTOT analog",
+      "max": 1.6875,
+      "min": 0.85986328125,
+      "role": "weight",
+      "units": ""
+    },
+    {
+      "categories": {
+        "0": {
+          "color": "#d8dde5",
+          "description": "Original BOSS CMASS-South galaxy with a measured spectroscopic redshift.",
+          "label": "observed spectroscopy",
+          "short_label": "observed"
+        },
+        "1": {
+          "color": "#39b5ff",
+          "description": "ECHOES galaxy restored at an imaging-target position affected by the fiber-collision scale.",
+          "label": "fiber-collision completion",
+          "short_label": "collided"
+        },
+        "2": {
+          "color": "#c071ff",
+          "description": "ECHOES galaxy restored for a failed spectroscopic redshift.",
+          "label": "redshift-failure completion",
+          "short_label": "zfail"
+        },
+        "3": {
+          "color": "#ffb84d",
+          "description": "ECHOES analog galaxy sampled from the WEIGHT_SYSTOT multiplicity model.",
+          "label": "imaging-systematic analog",
+          "short_label": "systot"
+        },
+        "4": {
+          "color": "#ff6f61",
+          "description": "Fallback redshift assignment used when a missing-galaxy posterior is degenerate.",
+          "label": "host-redshift fallback",
+          "short_label": "zhost"
+        }
+      },
+      "id": "provenance",
+      "label": "provenance",
+      "role": "categorical",
+      "units": ""
+    },
+    {
+      "categories": {
+        "0": {
+          "color": "#d8dde5",
+          "label": "observed"
+        },
+        "1": {
+          "color": "#41d6b0",
+          "label": "ECHOES completion"
+        }
+      },
+      "id": "source",
+      "label": "source",
+      "role": "categorical",
+      "units": ""
+    }
+  ],
+  "coordinate_modes": [
+    {
+      "axes": [
+        "wrapped RA [deg]",
+        "Dec [deg]",
+        "redshift-scaled z"
+      ],
+      "id": "observed",
+      "label": "Observed variables"
+    },
+    {
+      "axes": [
+        "x [Mpc/h]",
+        "y [Mpc/h]",
+        "z [Mpc/h]"
+      ],
+      "id": "comoving",
+      "label": "Fiducial comoving Mpc/h"
+    },
+    {
+      "axes": [
+        "x [Mpc/h]",
+        "y [Mpc/h]",
+        "z [Mpc/h]"
+      ],
+      "id": "proper",
+      "label": "Fiducial proper Mpc/h"
+    }
+  ],
+  "cosmology": {
+    "Om": 0.31,
+    "c_over_H100_Mpch": 2997.92458,
+    "distance_units": [
+      "observed variables",
+      "comoving Mpc/h",
+      "proper Mpc/h"
+    ],
+    "h": 0.68,
+    "id": "echoes-fiducial-flat-lcdm",
+    "label": "ECHOES fiducial flat LCDM",
+    "note": "Matches echoes.distance.DistanceCosmo defaults; distances are for visualization and validation, not for defining the released catalog.",
+    "w0": -1.0,
+    "wa": 0.0
+  },
+  "counts": {
+    "base": 116413,
+    "missing": 6777,
+    "observed": 109636
+  },
+  "dataset": {
+    "description": "ECHOES completed-catalog posterior for BOSS DR12 CMASS-South.",
+    "id": "boss-dr12-cmass-south",
+    "label": "BOSS DR12 CMASS-South",
+    "release_product": "data_release/cmass_south_posterior.npz"
+  },
+  "default_view": {
+    "color_by": "provenance",
+    "coordinate_mode": "comoving",
+    "method_id": "knn-field",
+    "projection": "3d",
+    "realization_id": "seed-0000",
+    "size_by": "source"
+  },
+  "enriched_bundle": {
+    "column_extension_point": "columns",
+    "columns_added": [],
+    "description": "Pass --enriched-npz with one-dimensional observed/base columns to append raw catalog parameters, computed weights, or method diagnostics without changing the viewer runtime.",
+    "method_extension_point": "methods",
+    "supported": true
+  },
+  "generated_utc": "2026-06-19T15:19:06Z",
+  "generator": "pipeline/build_viewer_bundle.py",
+  "methods": [
+    {
+      "description": "Default compact local-density/posterior engine used by the released ECHOES BOSS bundle.",
+      "id": "knn-field",
+      "label": "KNN-field ECHOES",
+      "realizations": [
+        {
+          "base_count": 116413,
+          "chunks": {
+            "extra_dec": {
+              "bytes": 14040,
+              "count": 3510,
+              "dtype": "<f4",
+              "file": "methods/knn-field/seed-0000/extra_dec.f32.bin",
+              "sha256": "01d3332a4b4dbafffc8b3ab106177f4b8912d2d960230af1f35a62d9f2ff15eb",
+              "shape": [
+                3510
+              ]
+            },
+            "extra_provenance": {
+              "bytes": 3510,
+              "count": 3510,
+              "dtype": "|u1",
+              "file": "methods/knn-field/seed-0000/extra_provenance.u8.bin",
+              "sha256": "cfbcf1017a052b53fbcbf09841f69d8f98f7ecb5dc5564a0347b2e16dce63671",
+              "shape": [
+                3510
+              ]
+            },
+            "extra_ra": {
+              "bytes": 14040,
+              "count": 3510,
+              "dtype": "<f4",
+              "file": "methods/knn-field/seed-0000/extra_ra.f32.bin",
+              "sha256": "aea78dd428b4c957dd2de0e5c1bc929167a3d3967f730bc30eaf0605b0903650",
+              "shape": [
+                3510
+              ]
+            },
+            "extra_z": {
+              "bytes": 14040,
+              "count": 3510,
+              "dtype": "<f4",
+              "file": "methods/knn-field/seed-0000/extra_z.f32.bin",
+              "sha256": "76699e927a3ebc6eb941b2d34ab35d9d3a50ec22a98885d17ef595d710b18b34",
+              "shape": [
+                3510
+              ]
+            },
+            "missing_z": {
+              "bytes": 27108,
+              "count": 6777,
+              "dtype": "<f4",
+              "file": "methods/knn-field/seed-0000/missing_z.f32.bin",
+              "sha256": "abad8518078a824cc0d24e9d7431a10ef9e8de4c441c6c40156238acb00663f2",
+              "shape": [
+                6777
+              ]
+            }
+          },
+          "extra_count": 3510,
+          "id": "seed-0000",
+          "label": "seed 0",
+          "provenance_counts": {
+            "0": 109636,
+            "1": 5272,
+            "2": 1505,
+            "3": 3510
+          },
+          "seed": 0,
+          "total_count": 119923
+        },
+        {
+          "base_count": 116413,
+          "chunks": {
+            "extra_dec": {
+              "bytes": 13860,
+              "count": 3465,
+              "dtype": "<f4",
+              "file": "methods/knn-field/seed-0001/extra_dec.f32.bin",
+              "sha256": "c5642a0d671104e5586b5cdce53182f046f893d586f503de5713f0655c7103c4",
+              "shape": [
+                3465
+              ]
+            },
+            "extra_provenance": {
+              "bytes": 3465,
+              "count": 3465,
+              "dtype": "|u1",
+              "file": "methods/knn-field/seed-0001/extra_provenance.u8.bin",
+              "sha256": "83fac45ac1bbbc7b275079a5130207d108d7cf7489ffbc232dfda6f962638396",
+              "shape": [
+                3465
+              ]
+            },
+            "extra_ra": {
+              "bytes": 13860,
+              "count": 3465,
+              "dtype": "<f4",
+              "file": "methods/knn-field/seed-0001/extra_ra.f32.bin",
+              "sha256": "3b3410eb4a784316bfa0c9fc86d3884042805fe743a2c8494104efc8fae93f0f",
+              "shape": [
+                3465
+              ]
+            },
+            "extra_z": {
+              "bytes": 13860,
+              "count": 3465,
+              "dtype": "<f4",
+              "file": "methods/knn-field/seed-0001/extra_z.f32.bin",
+              "sha256": "36fb79206076140fe1b95f5bc009c8d4ffa14a4cfdd399ddb02d22fb8a934524",
+              "shape": [
+                3465
+              ]
+            },
+            "missing_z": {
+              "bytes": 27108,
+              "count": 6777,
+              "dtype": "<f4",
+              "file": "methods/knn-field/seed-0001/missing_z.f32.bin",
+              "sha256": "00fc1f049d8ebb2e53bf6025b93e8b1aea4b67c9c09d2d366e1dddb49fe61a28",
+              "shape": [
+                6777
+              ]
+            }
+          },
+          "extra_count": 3465,
+          "id": "seed-0001",
+          "label": "seed 1",
+          "provenance_counts": {
+            "0": 109636,
+            "1": 5272,
+            "2": 1505,
+            "3": 3465
+          },
+          "seed": 1,
+          "total_count": 119878
+        },
+        {
+          "base_count": 116413,
+          "chunks": {
+            "extra_dec": {
+              "bytes": 13716,
+              "count": 3429,
+              "dtype": "<f4",
+              "file": "methods/knn-field/seed-0002/extra_dec.f32.bin",
+              "sha256": "b202d648bbf7c5e4f949c7f9ab00621d6e679fa9997982c54ad0e83548073616",
+              "shape": [
+                3429
+              ]
+            },
+            "extra_provenance": {
+              "bytes": 3429,
+              "count": 3429,
+              "dtype": "|u1",
+              "file": "methods/knn-field/seed-0002/extra_provenance.u8.bin",
+              "sha256": "515189553ab70153547ed9e43072339e88601cf5ea30b044cfbb4b43b383d9f2",
+              "shape": [
+                3429
+              ]
+            },
+            "extra_ra": {
+              "bytes": 13716,
+              "count": 3429,
+              "dtype": "<f4",
+              "file": "methods/knn-field/seed-0002/extra_ra.f32.bin",
+              "sha256": "0701aa912deccba894fb8fc122483c915a046af9ab90ad67042a704f02660dda",
+              "shape": [
+                3429
+              ]
+            },
+            "extra_z": {
+              "bytes": 13716,
+              "count": 3429,
+              "dtype": "<f4",
+              "file": "methods/knn-field/seed-0002/extra_z.f32.bin",
+              "sha256": "00568393d41015f5cce0a60412a800589ccf66015be69d6764b5bdcd364cc12b",
+              "shape": [
+                3429
+              ]
+            },
+            "missing_z": {
+              "bytes": 27108,
+              "count": 6777,
+              "dtype": "<f4",
+              "file": "methods/knn-field/seed-0002/missing_z.f32.bin",
+              "sha256": "9bf5620588206166eb73df0fd7ea35b442efeb38009d4d0d7fad49249d0f18d3",
+              "shape": [
+                6777
+              ]
+            }
+          },
+          "extra_count": 3429,
+          "id": "seed-0002",
+          "label": "seed 2",
+          "provenance_counts": {
+            "0": 109636,
+            "1": 5272,
+            "2": 1505,
+            "3": 3429
+          },
+          "seed": 2,
+          "total_count": 119842
+        },
+        {
+          "base_count": 116413,
+          "chunks": {
+            "extra_dec": {
+              "bytes": 13812,
+              "count": 3453,
+              "dtype": "<f4",
+              "file": "methods/knn-field/seed-0003/extra_dec.f32.bin",
+              "sha256": "b90a156d897309af3cae079781e2e866d2601377227e9355f442fc99f0804344",
+              "shape": [
+                3453
+              ]
+            },
+            "extra_provenance": {
+              "bytes": 3453,
+              "count": 3453,
+              "dtype": "|u1",
+              "file": "methods/knn-field/seed-0003/extra_provenance.u8.bin",
+              "sha256": "c6d1fbf11d680534fa6c4cdae642b41f8fb39abddfcd6f6ee4277558b3e3803c",
+              "shape": [
+                3453
+              ]
+            },
+            "extra_ra": {
+              "bytes": 13812,
+              "count": 3453,
+              "dtype": "<f4",
+              "file": "methods/knn-field/seed-0003/extra_ra.f32.bin",
+              "sha256": "cc08b5fe0eebebb3d5ec22b5e81cc80e69a5a5cf6c09675da71f550886bcdbf6",
+              "shape": [
+                3453
+              ]
+            },
+            "extra_z": {
+              "bytes": 13812,
+              "count": 3453,
+              "dtype": "<f4",
+              "file": "methods/knn-field/seed-0003/extra_z.f32.bin",
+              "sha256": "7e063297dc0c767549139fb5391dab4dc370f18254ac6712225bfd219d67f89d",
+              "shape": [
+                3453
+              ]
+            },
+            "missing_z": {
+              "bytes": 27108,
+              "count": 6777,
+              "dtype": "<f4",
+              "file": "methods/knn-field/seed-0003/missing_z.f32.bin",
+              "sha256": "7767a9c4766547d1f4a024c77c7255ade43df400bdedaf49f80687f5fcded3af",
+              "shape": [
+                6777
+              ]
+            }
+          },
+          "extra_count": 3453,
+          "id": "seed-0003",
+          "label": "seed 3",
+          "provenance_counts": {
+            "0": 109636,
+            "1": 5272,
+            "2": 1505,
+            "3": 3453
+          },
+          "seed": 3,
+          "total_count": 119866
+        }
+      ]
+    }
+  ],
+  "provenance_codes": {
+    "0": {
+      "color": "#d8dde5",
+      "description": "Original BOSS CMASS-South galaxy with a measured spectroscopic redshift.",
+      "label": "observed spectroscopy",
+      "short_label": "observed"
+    },
+    "1": {
+      "color": "#39b5ff",
+      "description": "ECHOES galaxy restored at an imaging-target position affected by the fiber-collision scale.",
+      "label": "fiber-collision completion",
+      "short_label": "collided"
+    },
+    "2": {
+      "color": "#c071ff",
+      "description": "ECHOES galaxy restored for a failed spectroscopic redshift.",
+      "label": "redshift-failure completion",
+      "short_label": "zfail"
+    },
+    "3": {
+      "color": "#ffb84d",
+      "description": "ECHOES analog galaxy sampled from the WEIGHT_SYSTOT multiplicity model.",
+      "label": "imaging-systematic analog",
+      "short_label": "systot"
+    },
+    "4": {
+      "color": "#ff6f61",
+      "description": "Fallback redshift assignment used when a missing-galaxy posterior is degenerate.",
+      "label": "host-redshift fallback",
+      "short_label": "zhost"
+    }
+  },
+  "schema_version": "echoes.viewer.v1"
+}

@@ -17,6 +17,7 @@ add more surveys over time.
 
 - 📄 **Paper:** [`paper/`](paper/) (ECHOES for BOSS DR12 CMASS-South)
 - 📊 **Interactive report:** https://yipihey.github.io/ECHOES/report.html
+- 🛰️ **3D visualizer:** https://yipihey.github.io/ECHOES/visualizer/
 - 📚 **Method walkthrough:** [`docs/method.md`](docs/method.md) — more pedagogical than the paper
 - 📦 **Data:** [`DATA.md`](DATA.md) — products, inputs, and how to get them
 
@@ -86,6 +87,7 @@ python pipeline/build_release.py            # rebuild the posterior + randoms
 python validation/truth_recovery.py         # truth-known recovery
 python validation/graphgp_vs_knn.py         # engine comparison
 python pipeline/build_report.py             # rebuild docs/report.html
+python pipeline/build_viewer_bundle.py      # rebuild docs/visualizer/
 ```
 
 ## Adding a survey

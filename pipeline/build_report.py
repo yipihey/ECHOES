@@ -477,6 +477,10 @@ def render(D, figs, Dm, Dc):
              f"<title>ECHOES — BOSS DR12 CMASS-South completed-catalog report</title><style>{CSS}</style></head><body>")
     H.append("<h1><span style='letter-spacing:1px'>ECHOES</span>: Equal-weight Completed "
              "Hypothetical Observation Ensembles</h1>")
+    H.append("<div class='sub' style='margin-top:-2px'>"
+             "<a href='https://github.com/yipihey/ECHOES'>github.com/yipihey/ECHOES</a>"
+             " &middot; <a href='paper.pdf'>paper</a>"
+             " &middot; <a href='visualizer/'>WebGPU visualizer</a></div>")
     H.append(f"<div class='sub'>Cosmology-free correction of spectroscopic incompleteness "
              f"&middot; BOSS DR12 CMASS-South &middot; {date}</div>")
     H.append("<div class='tabbar'>"

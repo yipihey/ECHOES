@@ -17,6 +17,11 @@ Shipped in [`data_release/`](data_release/) and ready for Zenodo archival:
 | `cmass_south_randoms.npz` | 4.6 MB | uniform-footprint random catalog (RA, DEC, Z) |
 | `draw_samples.py` | — | standalone NumPy-only sampler |
 
+The GitHub Pages viewer at
+[`docs/visualizer/`](docs/visualizer/) is generated from the same posterior. Its
+browser bundle stores the observed/base catalog once and stores only
+realization-specific missing-redshift draws plus imaging-systematic analogs.
+
 Draw completed catalogs with no large downloads:
 ```bash
 pip install "echoes @ git+https://github.com/yipihey/ECHOES.git"
@@ -91,6 +96,19 @@ python pipeline/build_release.py     # rebuilds cmass_south_posterior.npz + cmas
 ```
 The seed-0 census is deterministic: 109,636 observed + 5,272 fiber-collided +
 1,505 redshift-failure + 3,510 imaging-systematic analogs = **119,923** galaxies.
+
+Build the static WebGPU visualizer bundle from the released posterior:
+```bash
+python pipeline/build_viewer_bundle.py --seeds 0 1 2 3
+```
+This writes `docs/visualizer/data/viewer_manifest.json` and typed-array chunks
+under `docs/visualizer/data/`. Enriched builds can add raw BOSS columns,
+computed weights, or method diagnostics through the same manifest:
+```bash
+python pipeline/build_viewer_bundle.py --enriched-npz enriched_columns.npz
+```
+The enriched NPZ should contain numeric one-dimensional arrays aligned either to
+the observed catalog (`n_obs`) or to the fixed base catalog (`n_base`).
 
 ## 4. Integrity (SHA256)
 Verify any download against `data_release/SHA256SUMS`:
