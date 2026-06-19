@@ -57,6 +57,7 @@ function $(id) {
 function setupElements() {
   for (const id of [
     "app", "scene", "labels", "unsupported", "methodSelect", "realizationSelect",
+    "loadingOverlay", "loadingText",
     "coordinateSelect", "projectionSelect", "colorBy", "sizeBy", "showObserved",
     "showEchoes", "zSlab", "pointScale", "opacity", "showGrid", "showLabels",
     "gridOpacity", "labelSize", "blinkRate", "blinkBtn", "shotBtn", "fullBtn",
@@ -70,6 +71,7 @@ async function main() {
   setupElements();
   try {
     state.manifestUrl = new URL(MANIFEST_URL, window.location.href);
+    setLoading("Fetching manifest...");
     state.manifest = await fetchJson(state.manifestUrl);
     state.method = state.manifest.methods[0];
     state.realization = state.method.realizations[0];
@@ -78,23 +80,33 @@ async function main() {
     renderLegend();
     updateCosmologyText();
     setStatus("Loading catalog bundle...");
+    setLoading("Fetching fixed observed/base catalog...");
     state.base = await loadBaseColumns();
+    setLoading(`Fetching ${state.realization.label} chunks...`);
     state.realizationData = await loadRealization(state.realization);
 
     if (!navigator.gpu) {
       els.unsupported.hidden = false;
+      hideLoading();
       setStatus("WebGPU is not available in this browser.");
       return;
     }
 
+    setLoading("Initializing WebGPU renderer...");
     state.gpu = await initGpu();
     attachEvents();
     resizeCanvas();
+    setLoading("Uploading catalog to the GPU...");
     rebuildScene(true);
+    render();
+    state.needsRender = false;
+    hideLoading();
+    window.__echoesReady = true;
     requestAnimationFrame(frame);
   } catch (err) {
     console.error(err);
     setStatus(`Error: ${err.message}`);
+    setLoading(`Error: ${err.message}`);
   }
 }
 
@@ -990,6 +1002,16 @@ function toggleUi() {
 
 function setStatus(text) {
   els.status.innerHTML = text;
+}
+
+function setLoading(text) {
+  if (!els.loadingOverlay) return;
+  els.loadingOverlay.hidden = false;
+  els.loadingText.textContent = text;
+}
+
+function hideLoading() {
+  if (els.loadingOverlay) els.loadingOverlay.hidden = true;
 }
 
 function statusText(catalog) {

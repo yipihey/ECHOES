@@ -11,6 +11,13 @@
   <main id="app" class="app-shell">
     <canvas id="scene" aria-label="ECHOES 3D galaxy catalog visualizer"></canvas>
     <div id="labels" class="axis-labels" aria-hidden="true"></div>
+    <div id="loadingOverlay" class="loading-overlay" role="status" aria-live="polite">
+      <div class="loading-card">
+        <div class="loading-title">Loading ECHOES Catalog</div>
+        <div id="loadingText" class="loading-text">Fetching manifest...</div>
+        <div class="loading-bar"><span></span></div>
+      </div>
+    </div>
 
     <section id="unsupported" class="unsupported" hidden>
       <h1>WebGPU Required</h1>

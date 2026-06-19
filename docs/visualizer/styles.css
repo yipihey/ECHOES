@@ -262,6 +262,63 @@ details label {
   font-weight: 620;
 }
 
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 18;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: rgba(9, 11, 13, 0.52);
+}
+
+.loading-overlay[hidden] {
+  display: none;
+}
+
+.loading-card {
+  width: min(360px, calc(100vw - 42px));
+  padding: 18px 18px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-solid);
+  box-shadow: var(--shadow);
+}
+
+.loading-title {
+  font-size: 15px;
+  font-weight: 760;
+  margin-bottom: 6px;
+}
+
+.loading-text {
+  color: var(--muted);
+  font-size: 13px;
+  min-height: 20px;
+}
+
+.loading-bar {
+  height: 4px;
+  margin-top: 14px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.loading-bar span {
+  display: block;
+  width: 42%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--teal);
+  animation: load-sweep 1.1s ease-in-out infinite;
+}
+
+@keyframes load-sweep {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(260%); }
+}
+
 .unsupported {
   position: absolute;
   inset: 0;
