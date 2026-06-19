@@ -5,7 +5,7 @@ build/
 dist/
 .ipynb_checkpoints/
 # local data + caches (fetched via data/fetch_*.py; see DATA.md)
-/data/boss/
+/data/boss
 /output/
 # latex build artifacts
 paper/*.aux

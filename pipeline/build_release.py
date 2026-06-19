@@ -19,7 +19,7 @@ from echoes.surveys.boss import load_boss
 from echoes.photoz import PhotoZKNN, photoz_features
 from echoes.surveys.boss_targets import load_cmass_targets
 from echoes.completion import measure_close_pair_dz
-from echoes import posterior_sampler as PS
+from echoes import posterior as PS
 
 DATA = "data/boss/galaxy_DR12v5_CMASS_South.fits.gz"
 RAND = "data/boss/random0_DR12v5_CMASS_South.fits.gz"

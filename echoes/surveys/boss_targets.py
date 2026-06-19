@@ -105,7 +105,7 @@ def _load_real_targets(catalog, path, collision_scale_deg=62.0 / 3600.0):
     """
     from astropy.io import fits
     from scipy.spatial import cKDTree
-    from .observed import _radec_to_nhat
+    from ..geometry import _radec_to_nhat
 
     t = fits.open(path)[1].data
     tra = np.asarray(t["ra"], np.float64); tdec = np.asarray(t["dec"], np.float64)
