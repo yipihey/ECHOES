@@ -261,6 +261,33 @@ def _clpair_density(dz_pool, n_bins: int = 121, dz_max: float = 0.06):
 PROV = {"observed": 0, "collided": 1, "zfail": 2, "systot": 3, "zhost": 4, "inpaint": 5}
 PROV_NAME = {v: k for k, v in PROV.items()}
 
+# Coarse category each provenance code rolls up to, for visualizers / data products.
+# Three distinct origins the user must be able to separate:
+#   "observed"  — real spec-z, the fixed base catalogue;
+#   "completed" — a spectroscopically-MISSING galaxy restored at its imaging
+#                 position with a data-driven redshift. Split by WHY it was missing:
+#                 fiber-collision (collided / zhost-fallback) vs redshift-failure;
+#   "inpainted" — a synthetic point added to undo an imaging-systematic density
+#                 deficit (systot analogs; future mask-hole inpaint), NOT a real
+#                 missing galaxy — it has no imaging counterpart of its own.
+PROV_GROUP = {
+    PROV["observed"]: "observed",
+    PROV["collided"]: "completed:fiber-collision",
+    PROV["zhost"]:    "completed:fiber-collision",
+    PROV["zfail"]:    "completed:redshift-failure",
+    PROV["systot"]:   "inpainted:imaging-systematic",
+    PROV["inpaint"]:  "inpainted:mask-hole",
+}
+# display colours (dark-background visualizer); observed dim, completions bright.
+PROV_COLOR = {
+    PROV["observed"]: "#1f6f78",   # dim teal — the spec-z base
+    PROV["collided"]: "#ff7a2d",   # orange  — fiber-collision completion
+    PROV["zhost"]:    "#ffb27a",   # light orange — fiber-collision (host-z fallback)
+    PROV["zfail"]:    "#ffe14d",   # yellow  — redshift-failure completion
+    PROV["systot"]:   "#39e58c",   # green   — imaging-systematic inpaint
+    PROV["inpaint"]:  "#9b5de5",   # purple  — mask-hole inpaint
+}
+
 
 def _systot_restore_extras(base_ra, base_dec, base_z, src, rng, jitter_arcsec=1.0):
     """Restore ``len(src)`` WEIGHT_SYSTOT-implied galaxies at the survivor scale.
