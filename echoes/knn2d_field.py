@@ -114,6 +114,7 @@ class KNN2DFieldResult:
     completeness: float = 0.93
     cic_pmf_ap: Optional[np.ndarray] = None           # (n_z_n, k_max_cic+1) measured CIC PMF at the aperture
     cic_intensity_table: Optional[np.ndarray] = None  # (n_z_n, k_max_cic+1) E[N_missing | observed count]
+    k_list: tuple = (1, 2, 4, 8)                      # kNN ladder for reduce='knn'
 
     @property
     def n_theta(self) -> int:
@@ -228,6 +229,67 @@ def _one_plus_delta(dd_cum, field):
     return opd
 
 
+def _knn_dist2(cum, theta2, k):
+    """Invert a cumulative-count-vs-θ profile to the squared kth-NN angular
+    distance θ_k². ``cum[..., t]`` is the (monotone) count of neighbours within
+    ``theta_radii[t]``; the kth neighbour sits where the count crosses ``k``.
+
+    Interpolation is linear in θ² versus count — exact for a locally-uniform
+    density (count ∝ area ∝ θ²), which is the right small-scale behaviour and the
+    whole point of the adaptive estimator: where the field is dense the kth
+    neighbour is very close, so θ_k² is small and the implied density k/θ_k² is
+    large. Returns θ_k² with the θ axis (last) reduced; clamped to the resolved
+    range. Where the profile never reaches k, returns θ_max² (low density)."""
+    above = cum >= k
+    has = above.any(axis=-1)
+    first = np.argmax(above, axis=-1)                         # first t with cum>=k
+    first_lo = np.maximum(first - 1, 0)
+    cum_hi = np.take_along_axis(cum, first[..., None], axis=-1)[..., 0]
+    cum_lo = np.where(first > 0,
+                      np.take_along_axis(cum, first_lo[..., None], axis=-1)[..., 0], 0.0)
+    th2_hi = theta2[first]
+    th2_lo = np.where(first > 0, theta2[first_lo], 0.0)
+    denom = np.where(cum_hi > cum_lo, cum_hi - cum_lo, 1.0)
+    t2 = th2_lo + (k - cum_lo) / denom * (th2_hi - th2_lo)
+    t2 = np.where(has, t2, theta2[-1])
+    return np.clip(t2, theta2[0] * 0.25, theta2[-1])
+
+
+def _one_plus_delta_knn(dd_cum, field, opd_cap=1e3):
+    """Adaptive multi-scale kNN-distance overdensity ``(1+δ)(n̂, z)`` — the
+    proper 2D-kNN reduction using BOTH flavors.
+
+    For each missing sightline and z-shell, invert the per-sightline DD profile
+    and the global RD profile to the kth-NN angular distance for k in
+    ``field.k_list``, and form the area ratio (the kth-NN density estimator,
+    DD/RD-normalised per k):
+
+        (1+δ)_k(n̂, z) = θ_k^RD(z)² / θ_k^DD(n̂, z)²      [density ∝ k/θ_k²]
+
+    combined across k by the geometric mean (robust to the k=1 shot noise while
+    keeping its sharpness). Small k probes the close-pair / 1-halo scale where the
+    fiber-collision missing galaxies live — θ_k^DD shrinks there, so the estimator
+    self-sharpens in dense regions, unlike the fixed-aperture tophat. DD and RD
+    are smoothed in z first (per-shell counts are otherwise too sparse for the
+    high-k inversion). Returns ``(M, n_z_n)``; neutral (==1) on poorly-covered
+    shells."""
+    S = _z_smoothing_matrix(field.z_n_centres, field.bw_z)
+    dd = dd_cum @ S.T                                         # (M, n_theta, n_z_n)
+    rd = field.rd_cum @ S.T                                   # (n_theta, n_z_n)
+    theta2 = np.ascontiguousarray(field.theta_radii_rad ** 2)
+    dd_t = np.moveaxis(dd, 1, -1)                             # (M, n_z_n, n_theta)
+    rd_t = np.ascontiguousarray(rd.T)                         # (n_z_n, n_theta)
+    log_sum = np.zeros((dd_t.shape[0], dd_t.shape[1]))
+    for k in field.k_list:
+        dd2 = _knn_dist2(dd_t, theta2, float(k))             # (M, n_z_n)
+        rd2 = _knn_dist2(rd_t, theta2, float(k))             # (n_z_n,)
+        opd_k = np.clip(rd2[None, :] / dd2, 1.0 / opd_cap, opd_cap)
+        log_sum += np.log(opd_k)
+    opd = np.exp(log_sum / len(field.k_list))
+    covered = rd[-1] >= field.min_expected                   # RD reaches the field at θ_max
+    return np.where(covered[None, :], opd, 1.0)
+
+
 def _cic_intensity_table(cic_pmf_ap, completeness):
     """Expected number of *missing* galaxies in a cap given its observed count,
     from the measured CIC PMF — the full-distribution ('cdf') weight.
@@ -291,7 +353,8 @@ def build_knn2d_field(
     n_z_n: int = 48,
     z_range: Optional[tuple] = None,
     aperture_deg: float = 1.0,
-    reduce: str = "aperture",
+    reduce: str = "knn",
+    k_list: tuple = (1, 2, 4, 8),
     bw_z: float = 0.008,
     rd_source: str = "mc",
     n_rd_factor: int = 4,
@@ -325,11 +388,15 @@ def build_knn2d_field(
     n_z_n, z_range
         Neighbour-redshift shells: ``n_z_n`` uniform bins over ``z_range``
         (default the observed redshift span).
-    aperture_deg, reduce
-        Density reduction over the θ ladder — single cap nearest
-        ``aperture_deg`` (``reduce='aperture'``, default ~1° so the cap holds
-        ~150 galaxies, matching the KNN-KDE engine's K) or count-weighted pool
-        over the whole ladder (``reduce='ladder'``).
+    aperture_deg, reduce, k_list
+        Density reduction over the θ ladder. ``'aperture'`` (default): single cap
+        nearest ``aperture_deg`` (~1°, ~150 galaxies, matching the KNN-KDE
+        engine's K) — a fixed tophat. ``'ladder'``: count-weighted pool over the
+        whole ladder. ``'knn'`` (recommended for the full 2D-kNN method): the
+        adaptive multi-scale kth-NN-distance estimator over ``k_list`` (default
+        1,2,4,8), using both DD and RD flavors — self-sharpening in dense regions
+        (close pairs → small θ_k), which a fixed aperture cannot do. ``'knn'``
+        uses a finer default θ ladder (down to ~10″) so θ_k resolves at small k.
     bw_z
         Gaussian z-bandwidth for smoothing DD/RD before the ratio (default
         0.008, between the KNN-KDE field bandwidth 0.004 and the photo-z 0.02).
@@ -365,7 +432,10 @@ def build_knn2d_field(
     n_obs = ra_o.size
 
     if theta_edges_deg is None:
-        theta_edges_deg = np.geomspace(0.05, 1.5, 8)
+        # the adaptive kth-NN reduction needs fine small-θ resolution (close
+        # pairs) to invert θ_k for small k; the tophat reductions do not.
+        theta_edges_deg = (np.geomspace(0.003, 1.5, 20) if reduce == "knn"
+                           else np.geomspace(0.05, 1.5, 8))
     theta_radii_rad = np.deg2rad(np.asarray(theta_edges_deg, np.float64))
     if z_range is None:
         z_range = (float(z_o.min()), float(z_o.max()))
@@ -434,13 +504,16 @@ def build_knn2d_field(
 
     if verbose:
         S = _z_smoothing_matrix(z_n_centres, bw_z)
-        rdr_sm = (rd_cum.sum(0) if reduce == "ladder"
-                  else rd_cum[aperture_index]) @ S.T
+        rref = (rd_cum[-1] if reduce == "knn"
+                else rd_cum.sum(0) if reduce == "ladder"
+                else rd_cum[aperture_index])
+        rdr_sm = rref @ S.T
         cov = float((rdr_sm >= min_expected).mean())
+        extra = (f" k_list={tuple(int(k) for k in k_list)}" if reduce == "knn" else "")
         print(f"[knn2d-field] N_obs={n_obs:,} theta={len(theta_radii_rad)} "
-              f"z_n={n_z_n} rd_source={rd_source} reduce={reduce} weight={weight} "
+              f"z_n={n_z_n} rd_source={rd_source} reduce={reduce}{extra} weight={weight} "
               f"aperture={aperture_deg}deg bw_z={bw_z} "
-              f"<cap RD>={float(np.median(rdr_sm)):.1f} well-covered shells="
+              f"<cap RD@max>={float(np.median(rdr_sm)):.1f} well-covered shells="
               f"{cov*100:.0f}%")
 
     return KNN2DFieldResult(
@@ -453,7 +526,8 @@ def build_knn2d_field(
         z_g_sorted=zg_s, w_g_sorted=wg_s, n_obs=n_obs,
         n_samples=int(max(1, n_samples)), backend=rd_source,
         weight=weight, completeness=float(completeness),
-        cic_pmf_ap=cic_pmf_ap, cic_intensity_table=cic_intensity_table)
+        cic_pmf_ap=cic_pmf_ap, cic_intensity_table=cic_intensity_table,
+        k_list=tuple(int(k) for k in k_list))
 
 
 def _knn2d_zmiss(targets, photoz, dz_pool, knn2d_field, draw_index,
@@ -490,7 +564,10 @@ def _knn2d_zmiss(targets, photoz, dz_pool, knn2d_field, draw_index,
 
     # per-sightline DD profile.
     dd_cum = _per_sightline_dd(field, ra_m, dec_m)             # (M, n_theta, n_z_n)
-    opd_zn = _one_plus_delta(dd_cum, field)                   # (M, n_z_n) first-moment
+    if field.reduce == "knn":
+        opd_zn = _one_plus_delta_knn(dd_cum, field)           # (M, n_z_n) adaptive kNN-distance
+    else:
+        opd_zn = _one_plus_delta(dd_cum, field)               # (M, n_z_n) first-moment
     nbar_zn = np.histogram(z_o, bins=field.z_n_edges)[0].astype(float)  # n̄ on shells
     use_cdf = (field.weight == "cdf" and field.cic_intensity_table is not None)
     if use_cdf:

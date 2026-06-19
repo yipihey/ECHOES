@@ -57,6 +57,10 @@ def main():
     p.add_argument("--z-modes", default="field,knn2d",
                    help="comma list of completion engines to compare head-to-head "
                         "(e.g. 'field,knn2d' or 'field,knn2d,graphgp')")
+    p.add_argument("--knn2d-reduce", default="knn",
+                   choices=["knn", "aperture", "ladder"],
+                   help="θ-ladder reduction for the knn2d field (default 'knn': the "
+                        "adaptive multi-scale kth-NN-distance estimator)")
     p.add_argument("--out", default="output/completion_highorder.png")
     args = p.parse_args()
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
@@ -78,7 +82,8 @@ def main():
         from echoes.knn2d_field import build_knn2d_field
     if "knn2d" in modes:
         ckw["knn2d"] = {"knn2d_field": build_knn2d_field(
-            obs, seed=0, verbose=True, sel_map=cat.sel_map, nside=cat.nside)}
+            obs, seed=0, verbose=True, sel_map=cat.sel_map, nside=cat.nside,
+            reduce=args.knn2d_reduce)}
     if "knn2d_cdf" in modes:
         ckw["knn2d_cdf"] = {"knn2d_field": build_knn2d_field(
             obs, seed=0, verbose=True, sel_map=cat.sel_map, nside=cat.nside,
@@ -115,35 +120,40 @@ def main():
     m_o = cic(obs_xyz, c_xyz, Rcic)
     vpf = lambda m: float(np.mean(np.asarray(m) == 0))   # void probability P(N=0)
 
-    # per-engine higher-order statistics.
+    # per-engine, PER-REALIZATION higher-order statistics (each completed catalog
+    # is one realization; we report the ensemble mean ± scatter so the small
+    # engine-to-engine differences can be judged against realization noise).
     knn_mean = {}; m_mean = {}
+    dknn_stat = {}; skew_stat = {}; vpf_stat = {}
+    def dk1(K):  # mean over k of max|ΔCDF to truth| for one realization
+        return float(np.mean([np.max(np.abs(K[k] - knn_t[k])) for k in ks]))
     for mode, cats in cats_by_mode.items():
         KNN_c = [knn_cdf(xyz(np.asarray(c["ra"]), np.asarray(c["dec"]), np.asarray(c["z"])),
                          q_xyz, ks, redges) for c in cats]
-        knn_mean[mode] = {k: np.mean([K[k] for K in KNN_c], 0) for k in ks}
-        m_mean[mode] = np.mean([cic(xyz(np.asarray(c["ra"]), np.asarray(c["dec"]),
-                                        np.asarray(c["z"])), c_xyz, Rcic) for c in cats], 0)
+        cic_c = [cic(xyz(np.asarray(c["ra"]), np.asarray(c["dec"]), np.asarray(c["z"])),
+                     c_xyz, Rcic) for c in cats]
+        knn_mean[mode] = {k: np.mean([K[k] for K in KNN_c], 0) for k in ks}   # for the figure
+        m_mean[mode] = np.concatenate(cic_c)                                  # pooled, for the PDF
+        dknn_stat[mode] = [dk1(K) for K in KNN_c]
+        skew_stat[mode] = [mom(m)[2] for m in cic_c]
+        vpf_stat[mode] = [vpf(m) for m in cic_c]
 
-    # ----- decisive head-to-head report -----
-    def dknn(K):  # mean over k of max|ΔCDF| to truth (lower = better)
-        return np.mean([np.max(np.abs(K[k] - knn_t[k])) for k in ks])
-    print("\n=== kNN-CDF recovery: max|ΔCDF to truth| per k  (lower = better) ===")
-    hdr = "  k       observed " + "".join(f"{m:>12s}" for m in modes)
-    print(hdr)
-    for k in ks:
-        row = f"  k={k}   {np.max(np.abs(knn_o[k]-knn_t[k])):9.4f}"
-        row += "".join(f"{np.max(np.abs(knn_mean[m][k]-knn_t[k])):12.4f}" for m in modes)
-        print(row)
-    print("  " + "-" * (len(hdr) - 2))
-    print(f"  <k>     {dknn(knn_o):9.4f}" + "".join(f"{dknn(knn_mean[m]):12.4f}" for m in modes))
-
-    print(f"\n=== counts-in-cells (R={Rcic} Mpc/h):  mean, var/mean, skew | VPF=P(N=0) ===")
-    print(f"  truth:      {tuple(np.round(mom(m_t),3))}   VPF={vpf(m_t):.4f}")
-    print(f"  observed:   {tuple(np.round(mom(m_o),3))}   VPF={vpf(m_o):.4f}")
+    def pm(v):
+        v = np.asarray(v, float); return f"{v.mean():.4f} ± {v.std():.4f}"
+    print("\n=== kNN-CDF recovery: <max|ΔCDF to truth|>_k  (mean ± scatter; lower = better) ===")
+    print(f"  observed:   {dk1(knn_o):.4f}")
     for mode in modes:
-        print(f"  {mode:10s}: {tuple(np.round(mom(m_mean[mode]),3))}   VPF={vpf(m_mean[mode]):.4f}")
-    print("\n(non-Gaussianity lives in skew + VPF + the high-k kNN-CDF tail; the engine that "
-          "tracks truth there best is the better higher-order completion.)")
+        print(f"  {mode:11s}: {pm(dknn_stat[mode])}")
+    print(f"\n=== CIC skew (R={Rcic} Mpc/h)  [truth {mom(m_t)[2]:.3f}] ===")
+    print(f"  observed:   {mom(m_o)[2]:.3f}")
+    for mode in modes:
+        print(f"  {mode:11s}: {pm(skew_stat[mode])}")
+    print(f"\n=== VPF = P(N=0)  [truth {vpf(m_t):.4f}] ===")
+    print(f"  observed:   {vpf(m_o):.4f}")
+    for mode in modes:
+        print(f"  {mode:11s}: {pm(vpf_stat[mode])}")
+    print("\n(non-Gaussianity lives in skew + VPF + the high-k kNN-CDF tail. A real win must "
+          "exceed the ± realization scatter; otherwise the engines are statistically tied.)")
 
     # ----- figure: kNN-CDF (truth vs engines) + CIC PDF overlay -----
     emk = {"field": ("#3a6ea8", "o"), "knn2d": ("#c0392b", "^"),
