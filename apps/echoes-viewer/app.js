@@ -3,6 +3,7 @@ const TWO_PI = Math.PI * 2;
 const FETCH_TIMEOUT_MS = 60000;
 const PLOT_BACKGROUND_CSS = "#ffffff";
 const KERNEL_SPRITE_CACHE_LIMIT = 4096;
+const RENDERER_FALLBACK_STORAGE_KEY = "echoes.visualizer.rendererFallback";
 const kernelSpriteCache = new Map();
 
 const els = {};
@@ -268,6 +269,8 @@ function attachEvents() {
   els.rendererSelect.addEventListener("change", async () => {
     try {
       state.preferredRenderer = els.rendererSelect.value;
+      if (state.preferredRenderer === "canvas2d") rememberCanvasFallback("selected in renderer control");
+      else clearRememberedRendererFallback();
       setStatus("Switching renderer...");
       setLoading("Switching renderer...");
       await initRenderer();
@@ -371,6 +374,33 @@ function hydrateHashState() {
   }
   const renderer = p.get("renderer") || q.get("renderer");
   if (["auto", "webgpu", "canvas2d"].includes(renderer)) state.preferredRenderer = renderer;
+  else if (rememberedRendererFallback() === "canvas2d") state.preferredRenderer = "canvas2d";
+}
+
+function rememberedRendererFallback() {
+  try {
+    return window.localStorage?.getItem(RENDERER_FALLBACK_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function rememberCanvasFallback(reason) {
+  try {
+    window.localStorage?.setItem(RENDERER_FALLBACK_STORAGE_KEY, "canvas2d");
+    window.localStorage?.setItem(`${RENDERER_FALLBACK_STORAGE_KEY}.reason`, reason);
+  } catch {
+    // Private browsing or locked-down storage; the in-memory fallback still works.
+  }
+}
+
+function clearRememberedRendererFallback() {
+  try {
+    window.localStorage?.removeItem(RENDERER_FALLBACK_STORAGE_KEY);
+    window.localStorage?.removeItem(`${RENDERER_FALLBACK_STORAGE_KEY}.reason`);
+  } catch {
+    // Ignore storage restrictions.
+  }
 }
 
 function writeHashState() {
@@ -412,13 +442,19 @@ async function initRenderer() {
     state.gpu.device.lost.then(info => {
       if (state.renderer !== "webgpu") return;
       console.warn("WebGPU device lost; switching to canvas fallback.", info);
-      initCanvasFallback(`WebGPU device lost: ${info.message || info.reason || "unknown reason"}`);
+      const reason = `WebGPU device lost: ${info.message || info.reason || "unknown reason"}`;
+      state.preferredRenderer = "canvas2d";
+      rememberCanvasFallback(reason);
+      initCanvasFallback(reason);
       rebuildScene(false);
       safeRender("WebGPU device lost fallback");
     });
   } catch (err) {
-    console.warn("WebGPU initialization failed; switching to canvas fallback.", err);
-    initCanvasFallback(err.message || String(err));
+    const reason = err.message || String(err);
+    console.warn(`WebGPU initialization failed; switching to Canvas fallback: ${reason}`);
+    state.preferredRenderer = "canvas2d";
+    rememberCanvasFallback(reason);
+    initCanvasFallback(reason);
   }
 }
 
@@ -948,7 +984,7 @@ function safeRender(reason) {
 }
 
 function handleRenderFailure(err, reason) {
-  console.error(err);
+  console.warn(`WebGPU render failed during ${reason}; switching to Canvas fallback: ${err.message || err}`);
   updateDiagnostics("render-error", err);
   if (state.renderer !== "webgpu") {
     showLoadError(err);
@@ -960,6 +996,7 @@ function handleRenderFailure(err, reason) {
     reason: `WebGPU render failed during ${reason}: ${message}`,
   };
   state.preferredRenderer = "canvas2d";
+  rememberCanvasFallback(state.blankCheck.reason);
   if (els.rendererSelect) els.rendererSelect.value = "canvas2d";
   try {
     initCanvasFallback(`WebGPU render failed during ${reason}: ${message}`);
