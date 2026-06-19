@@ -6,8 +6,7 @@ verbose captions, caches the expensive measurements, and writes a single-scroll
 sectioned HTML to docs/report.html (ECHOES-branded)
 (base64-inline figures; no external dependencies).
 
-    PYTHONPATH=/home/tabel/Projects/graphgp:/home/tabel/Projects/graphGP-cosmology \
-    OMP_NUM_THREADS=16 ~/.venv/k3d/bin/python3 demos/build_completion_presentation.py
+    OMP_NUM_THREADS=16 python pipeline/build_report.py
         [--recompute]   force recompute (default: reuse output/_presentation_cache.npz)
         [--quick]       small N / subsample for a fast validation build
 """
@@ -45,32 +44,32 @@ def fig_to_b64(fig):
 
 
 def png_b64(path):
-    """Inline an existing PNG (a validation figure produced by a demos/ script) as base64."""
+    """Inline an existing PNG (a validation figure produced by a validation script) as base64."""
     if not os.path.exists(path):
         return None
     with open(path, "rb") as fh:
         return base64.b64encode(fh.read()).decode("ascii")
 
 
-# Headline validation numbers from the demos/ batteries (see each caption for the
+# Headline validation numbers from the validation batteries (see each caption for the
 # producing script). Stored here so the report states exact figures without re-running
 # the multi-hour mock recoveries on every HTML build.
 VALIDATION = {
-    # Phase 2 truth recovery: demos/mock_truth_recovery.py (real-BOSS-truth + Patchy)
+    # Phase 2 truth recovery: validation/truth_recovery.py (real-BOSS-truth + Patchy)
     "tr_wp_lo": 0.98, "tr_wp_hi": 1.01, "tr_oracle_lo": 0.997, "tr_oracle_hi": 1.005,
-    # Phase 3 higher-order: demos/validate_completion_highorder.py
+    # Phase 3 higher-order: validation/higher_order.py
     "cic_mean_t": 0.663, "cic_mean_c": 0.660, "cic_vm_t": 2.421, "cic_vm_c": 2.367,
     "cic_skew_t": 2.939, "cic_skew_c": 2.895,
     "knn_k1": 0.0022, "knn_k2": 0.0021, "knn_k4": 0.0011,
-    # Phase 5 cosmology consistency: demos/validate_cosmology_consistency.py
+    # Phase 5 cosmology consistency: validation/cosmology_consistency.py
     "cc_wp_lo": 0.985, "cc_wp_hi": 1.047, "cc_xi0_lo": 0.98, "cc_xi0_hi": 1.04,
-    # Phase 1 sensitivity: demos/audit_sensitivity.py  med/max |Δwp/wp|
+    # Phase 1 sensitivity: validation/sensitivity.py  med/max |Δwp/wp|
     "sens": [("redshift mode → nearest-neighbour", 0.012, 0.039),
              ("redshift mode → raw photo-z", 0.027, 0.051),
              ("count → Poisson (vs round)", 0.000, 0.000),
              ("photo-z neighbours k: 50–150", 0.000, 0.001),
              ("collision scale 40–90″", 0.003, 0.006)],
-    # Phase 4 calibration: demos/recovery_calibration.py
+    # Phase 4 calibration: validation/calibration.py
     "cal_unc_lo": 0.17, "cal_unc_hi": 0.44, "cal_cos_lo": 0.78, "cal_cos_hi": 7.16,
     "cal_ratio_lo": 0.06, "cal_ratio_hi": 0.36, "cal_cov": 0.08,
 }
@@ -960,10 +959,10 @@ def render(D, figs, Dm, Dc):
              "<li><b>Randoms</b> (<code>randoms.fits</code>) and a plain-text "
              "<code>PROVENANCE.txt</code>.</li></ul>"
              "<p>Provenance flags label each object: observed-specz, collided, zfail, "
-             "systot-analog, zhost-fallback, inpaint. The column dictionary, units, conventions "
+             "systot-analog, zhost-fallback, inpaint. Product conventions, scope, "
              "and the FKP / integral-constraint / window guidance for users are in "
-             "<code>DATA_MODEL.md</code>; the pinned, reproducible environment is in "
-             "<code>environment.yml</code>. The catalogs are in observed coordinates "
+             "<code>DATA.md</code> and <code>docs/method.md</code>; the pinned, reproducible "
+             "environment is in <code>environment.yml</code>. The catalogs are in observed coordinates "
              "(RA, Dec, z) and carry no fiducial cosmology.</p>")
 
     H.append("<h2 id='future'>Future extensions and other datasets</h2>")
@@ -974,16 +973,21 @@ def render(D, figs, Dm, Dc):
              "non-negligible (unlike w(θ)) — propagate it through the realization ensemble.</li>"
              "<li><b>Independent cross-check with bitwise / PIP weights</b> on surveys that provide "
              "fiber-assignment realizations (eBOSS, DESI) — BOSS DR12 does not ship them.</li>"
-             "<li><b>Other samples and surveys</b>: BOSS CMASS-North and LOWZ; eBOSS LRG/ELG/QSO; "
-             "DESI. The method needs only matched imaging (positions + colours) and the survey "
+             "<li><b>Other samples and surveys</b>: BOSS CMASS-North, LOWZ, eBOSS LRG/ELG, "
+             "and DESI. The method needs only matched imaging (positions + colours) and the survey "
              "completeness bookkeeping.</li></ul>")
 
     H.append("<h3>Reproduction</h3>")
     H.append("<pre>"
-             "PYTHONPATH=/home/tabel/Projects/graphgp:/home/tabel/Projects/graphGP-cosmology \\\n"
-             "OMP_NUM_THREADS=16 ~/.venv/k3d/bin/python3 demos/build_completion_presentation.py\n\n"
-             "# core code: echoes/{boss,photoz,cmass_targets,observed_ls}.py\n"
-             "# target fetch: demos/fetch_cmass_targets.py (SDSS DR12 SkyServer)</pre>")
+             "conda env create -f environment.yml\n"
+             "conda activate echoes\n"
+             "pip install -e \".[pipeline,clustering,graphgp,mask,fetch,dev]\"\n"
+             "python data/fetch_boss.py\n"
+             "python data/fetch_cmass_targets.py\n"
+             "python pipeline/build_release.py\n"
+             "python pipeline/build_report.py\n\n"
+             "# core code: echoes/surveys/boss.py, echoes/surveys/boss_targets.py,\n"
+             "# echoes/photoz.py, echoes/completion.py, echoes/posterior.py</pre>")
     H.append("</div>")  # end tab-completion
 
     # ================= graphGP route (second tab) =================
@@ -1005,7 +1009,7 @@ def render(D, figs, Dm, Dc):
     H.append("<p>Instead of a per-object KNN kernel density, graphGP draws a full <b>conditional "
              "posterior of the galaxy density field</b> δ(n̂,z) given the observed galaxies, via "
              "Matheron's pathwise-conditioning rule on a Vecchia graph "
-             "(<code>echoes/density_field.py</code>). Each missing galaxy's redshift is then "
+             "(<code>echoes/graphgp_field.py</code>). Each missing galaxy's redshift is then "
              "drawn from <b>p(z | n̂, colours) ∝ (1+δ(n̂,z)) · n̄(z) · p<sub>photoz</sub></b> with "
              "the GP field evaluated along its sightline — so neighbouring missing galaxies are "
              "<i>correlated</i> through the shared field draw (the KNN proxy treats them "
@@ -1062,8 +1066,9 @@ def render(D, figs, Dm, Dc):
              "(its per-object independence is what compresses). graphGP is the principled, "
              "correlated, more flexible alternative — recommended for field-level inference and "
              "for other surveys where the KNN proxy is not enough. Reproduce: "
-             "<code>demos/graphgp_vs_knn_zfield.py</code>, <code>graphgp_truth_recovery.py</code>, "
-             "<code>graphgp_cosmology_invariance.py</code>.</p>")
+             "<code>validation/graphgp_vs_knn.py</code>, "
+             "<code>validation/graphgp_truth_recovery.py</code>, and "
+             "<code>validation/graphgp_cosmology_invariance.py</code>.</p>")
     H.append("</div>")  # end tab-graphgp
 
     H.append("<script>function showTab(t){"
@@ -1107,7 +1112,7 @@ def compute_mask():
     import healpy as hp
     from Corrfunc.mocks.DDtheta_mocks import DDtheta_mocks
     from echoes.surveys.boss import load_boss
-    from echoes.observed import _radec_to_nhat
+    from echoes.geometry import _radec_to_nhat
     from echoes.inpaint import fine_completeness_map, find_interior_holes, inpaint_holes
 
     def wtheta(ra_d, dec_d, ra_r, dec_r, tb):
@@ -1150,7 +1155,7 @@ def compute_mask():
 
     # ---- inpaint GALLERY: holes shown with their CAUSE (bright stars / bad fields) ----
     # work in wrapped RA so holes near RA=0/360 are contiguous; store per-hole.
-    from echoes.observed import _radec_to_nhat
+    from echoes.geometry import _radec_to_nhat
     from scipy.spatial import cKDTree
     wrap = lambda r: ((np.asarray(r, float) + 180.0) % 360.0) - 180.0
     hid_all = real["hole_id"].astype(int)

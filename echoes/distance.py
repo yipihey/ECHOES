@@ -23,14 +23,21 @@ from __future__ import annotations
 
 from typing import NamedTuple, Tuple
 
-import jax
-import jax.numpy as jnp
-
-
-jax.config.update("jax_enable_x64", True)
-
-
 C_OVER_H100_MPCH = 2997.92458   # c/(100 km/s/Mpc) [Mpc/h];   D_C[Mpc/h] = (c/H100) * integ
+
+
+def _jnp():
+    """Import JAX lazily so the NumPy-only sampler can import ECHOES."""
+    try:
+        import jax
+        import jax.numpy as jnp
+    except ImportError as exc:
+        raise ImportError(
+            "cosmological distance transforms require the graphGP extras; "
+            "install with `pip install 'echoes[graphgp] @ git+https://github.com/yipihey/ECHOES.git'`"
+        ) from exc
+    jax.config.update("jax_enable_x64", True)
+    return jnp
 
 
 class DistanceCosmo(NamedTuple):
@@ -53,6 +60,7 @@ class DistanceCosmo(NamedTuple):
 
 def E_of_z(z: jnp.ndarray, cosmo: DistanceCosmo) -> jnp.ndarray:
     """Dimensionless Hubble parameter ``E(z) = H(z)/H0``."""
+    jnp = _jnp()
     Om, w0, wa = cosmo.Om, cosmo.w0, cosmo.wa
     matter = Om * (1.0 + z) ** 3
     de_exp = 3.0 * (1.0 + w0 + wa)
@@ -73,6 +81,7 @@ def comoving_distance(
     interpolates at the sample redshifts. ``c/H0/h`` sets the Mpc/h
     amplitude.
     """
+    jnp = _jnp()
     z_grid = jnp.linspace(0.0, z_max, n_grid)
     integrand = 1.0 / E_of_z(z_grid, cosmo)
     # Cumulative trapezoid: D[k] = sum_{j<=k} 0.5 (f[j] + f[j+1]) dz
@@ -97,6 +106,7 @@ def radec_z_to_cartesian(
     Returns shape ``(N, 3)``. ``ra_deg``, ``dec_deg`` are in degrees.
     Right-handed (x, y, z): x is RA=0 / Dec=0, z is the celestial pole.
     """
+    jnp = _jnp()
     ra = jnp.deg2rad(ra_deg)
     dec = jnp.deg2rad(dec_deg)
     D = comoving_distance(z, cosmo, z_max=z_max, n_grid=n_grid)
@@ -117,6 +127,7 @@ def cartesian_to_radec_z(
 
     Numerically inverts ``D_C(z)`` via a 1D interpolation table.
     """
+    jnp = _jnp()
     D = jnp.linalg.norm(xyz, axis=-1)
     # invert D -> z by tabulating D_C on a dense z-grid
     z_grid = jnp.linspace(0.0, z_max, n_grid)

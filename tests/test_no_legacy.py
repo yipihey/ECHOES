@@ -5,7 +5,8 @@ SRC = glob.glob(os.path.join(os.path.dirname(__file__), "..", "echoes", "**", "*
                 recursive=True)
 LEGACY = re.compile(r"\b(twopt_density|morton_cascade|from \.observed_ls|from \.density_field|"
                     r"from \.posterior_sampler|from \.clustering_corrfunc|from \.weights_graphgp|"
-                    r"from \.quaia|from \.desi|from \.cmass_targets|from \.twoMRS|load_2mrs)\b")
+                    r"from \.quaia|from \.desi|from \.cmass_targets|from \.twoMRS|load_2mrs|"
+                    r"Quaia|quasar|QSO|DATA_MODEL)\b")
 
 def test_no_legacy_references():
     bad = []

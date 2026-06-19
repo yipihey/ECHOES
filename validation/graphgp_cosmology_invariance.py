@@ -15,8 +15,7 @@ the per-object redshifts and the recovered wp(rp)/xi0 are invariant, the fiducia
 is a gauge choice and we can state the method is fully data-driven, no cosmology
 prior.
 
-    PYTHONPATH=/home/tabel/Projects/graphgp:/home/tabel/Projects/graphGP-cosmology \
-    JAX_PLATFORMS=cpu OMP_NUM_THREADS=16 ~/.venv/k3d/bin/python3 demos/graphgp_cosmology_invariance.py
+    JAX_PLATFORMS=cpu OMP_NUM_THREADS=16 python validation/graphgp_cosmology_invariance.py
 """
 import argparse, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

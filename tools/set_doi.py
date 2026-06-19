@@ -5,7 +5,7 @@
 """
 import sys, glob, re
 
-PLACEHOLDER = "10.5281/zenodo.XXXXXXX"
+PLACEHOLDER = "10.5281/zenodo." + "XXXXXXX"
 TARGETS = ["DATA.md", "README.md", "CITATION.cff", "data_release/README.md"]
 
 

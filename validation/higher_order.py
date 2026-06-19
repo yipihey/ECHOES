@@ -10,8 +10,7 @@ coincidence-sensitive statistics:
   * counts-in-cells PDF — mean, var/mean, skew in fixed apertures.
 3-D distances use a fiducial cosmology (measurement-time only).
 
-    PYTHONPATH=/home/tabel/Projects/graphgp:/home/tabel/Projects/graphGP-cosmology \
-    OMP_NUM_THREADS=32 JAX_PLATFORMS=cpu ~/.venv/k3d/bin/python3 demos/validate_completion_highorder.py
+    OMP_NUM_THREADS=32 JAX_PLATFORMS=cpu python validation/higher_order.py
 """
 import argparse, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

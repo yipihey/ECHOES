@@ -7,8 +7,7 @@ the TRUE wp (and to an oracle that places the missing galaxies at their true z).
 real-data head-to-head showed graphGP matches the official WEIGHTED clustering more
 closely than KNN; this says which one matches TRUTH.
 
-    PYTHONPATH=/home/tabel/Projects/graphgp:/home/tabel/Projects/graphGP-cosmology \
-    JAX_PLATFORMS=cpu OMP_NUM_THREADS=16 ~/.venv/k3d/bin/python3 demos/graphgp_truth_recovery.py
+    JAX_PLATFORMS=cpu OMP_NUM_THREADS=16 python validation/graphgp_truth_recovery.py
 """
 import argparse, dataclasses, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

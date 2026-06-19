@@ -857,9 +857,9 @@ completion is extrapolating most strongly.}
 \label{sec:availability}
 
 The analysis code is publicly available at
-\url{https://github.com/yipihey/graphGP-cosmology}, and the interactive
+\url{https://github.com/yipihey/ECHOES}, and the interactive
 completion report at
-\url{https://yipihey.github.io/graphGP-cosmology/completion.html}.  The compact
+\url{https://yipihey.github.io/ECHOES/report.html}.  The compact
 ECHOES posterior, the matching random catalog, and a dependency-light sampler
 are released with the report; a reproducible ensemble of completed catalogs is
 specified by the set of integer seeds used.  The file contents, the minimal
@@ -963,7 +963,7 @@ used for the comparisons in Section \ref{subsec:graphgp_results}.
 \section{Data Products and Sampler Interface}
 \label{app:products}
 
-The release in the report's \texttt{docs/data/} directory contains the compact
+The release in the repository's \texttt{data\_release/} directory contains the compact
 posterior \texttt{cmass\_south\_posterior.npz} (the fixed observed catalog plus
 an inverse-CDF redshift posterior for each restored target, tabulated at 65
 quantile levels and quantized to \texttt{uint16} for a 2.04 MB total), the
@@ -977,17 +977,18 @@ cat = draw(pkg, seed=0)
 \end{verbatim}
 which returns the arrays \texttt{ra}, \texttt{dec}, \texttt{z}, \texttt{prov},
 and \texttt{N}; a reproducible ensemble is the set of seeds used.  The relevant
-source modules are \texttt{twopt\_density/boss.py} (BOSS loader),
-\texttt{cmass\_targets.py} (missing-target recovery), \texttt{photoz.py} (the
-color-space $k$NN photo-$z$), \texttt{observed\_ls.py} (the KNN-field completion
-and the graphGP redshift interface), \texttt{posterior\_sampler.py} (the compact
-inverse-CDF posterior), \texttt{density\_field.py} (graphGP posterior-field
-sampling), and \texttt{clustering\_corrfunc.py} (the projected and multipole
-clustering measurements).
+source modules are \texttt{echoes/surveys/boss.py} (BOSS loader),
+\texttt{echoes/surveys/boss\_targets.py} (missing-target recovery),
+\texttt{echoes/photoz.py} (the color-space $k$NN photo-$z$),
+\texttt{echoes/completion.py} (the KNN-field completion and graphGP redshift
+interface), \texttt{echoes/posterior.py} (the compact inverse-CDF posterior),
+\texttt{echoes/graphgp\_field.py} (graphGP posterior-field sampling), and
+\texttt{echoes/clustering.py} (the projected and multipole clustering
+measurements).
 
 \acknowledgments
-This manuscript draft is based on the BOSS completion products in the
-\texttt{graphGP-cosmology} repository.  The BOSS data products are from SDSS-III.
+This manuscript draft is based on the ECHOES BOSS completion products.  The BOSS
+data products are from SDSS-III.
 
 \software{Corrfunc \citep{Corrfunc2020}, NumPy, SciPy, Astropy, Healpy,
 graphGP}

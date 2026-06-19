@@ -13,8 +13,7 @@ Recovery = completed≈truth while observed deviates.
 Statistics: w(θ), ξ(Δθ,Δz=0), n(z), counts-in-cells (higher-order).
 Cosmology-free (observed RA, Dec, z).
 
-    PYTHONPATH=/home/tabel/Projects/graphgp:/home/tabel/Projects/graphGP-cosmology \
-    OMP_NUM_THREADS=16 ~/.venv/k3d/bin/python3 demos/mock_truth_recovery.py
+    OMP_NUM_THREADS=16 python validation/truth_recovery.py
 """
 import argparse, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -25,7 +24,7 @@ from scipy.spatial import cKDTree
 from Corrfunc.mocks.DDtheta_mocks import DDtheta_mocks
 from echoes.surveys.boss import load_boss
 from echoes.photoz import PhotoZKNN, photoz_features
-from echoes.observed import _radec_to_nhat
+from echoes.geometry import _radec_to_nhat
 from echoes.completion import complete_catalog_photoz, measure_close_pair_dz
 from echoes.clustering import wp_rp
 from echoes.randoms import make_random_from_selection_function

@@ -17,7 +17,7 @@ galaxy at its TRUE position with a redshift drawn from its photo-z.
   it only exercises the plumbing; the real loader is needed for the science.)
 
 - **real** (``path`` given): the fetched DR12 CMASS target catalogue cross-matched
-  against the good-z LSS galaxies (see ``demos/fetch_cmass_targets.py``); the
+  against the good-z LSS galaxies (see ``data/fetch_cmass_targets.py``); the
   unmatched / ZWARNING≠0 objects are the missing set, with their real colours.
 """
 
@@ -90,7 +90,7 @@ def load_cmass_targets(
 def _load_real_targets(catalog, path, collision_scale_deg=62.0 / 3600.0):
     """Load the fetched CMASS target catalogue and build the missing set.
 
-    The fetch (``demos/fetch_cmass_targets.py``) gives all CMASS *colour-selected*
+    The fetch (``data/fetch_cmass_targets.py``) gives all CMASS *colour-selected*
     targets with extinction-corrected ugriz mags + spec match (spec_z, zwarning).
     Classify:
       - **z-failure**: has a spectrum but ``zwarning≠0`` → real position+colours,

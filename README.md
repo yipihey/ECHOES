@@ -23,19 +23,22 @@ add more surveys over time.
 ## Install
 
 ```bash
-pip install git+https://github.com/yipihey/ECHOES        # core (numpy-only sampling works)
-pip install "echoes[clustering] @ git+https://github.com/yipihey/ECHOES"   # + Corrfunc measurements
-pip install "echoes[graphgp]   @ git+https://github.com/yipihey/ECHOES"    # + graphGP field engine
+pip install "echoes @ git+https://github.com/yipihey/ECHOES.git"             # core sampler
+pip install "echoes[fits] @ git+https://github.com/yipihey/ECHOES.git"       # + FITS output
+pip install "echoes[clustering] @ git+https://github.com/yipihey/ECHOES.git" # + Corrfunc measurements
+pip install "echoes[graphgp] @ git+https://github.com/yipihey/ECHOES.git"    # + graphGP field engine
 ```
 or, for full reproducibility:
 ```bash
-conda env create -f environment.yml && conda activate echoes && pip install -e .[all]
+conda env create -f environment.yml
+conda activate echoes
+pip install -e ".[pipeline,clustering,graphgp,mask,fetch,dev]"
 ```
 
 ## Quickstart — draw completed catalogs (no large downloads)
 
 ```bash
-echoes-draw --seed 0 --out catalog_0.fits          # one ~120k-galaxy realization
+echoes-draw --seed 0 --out catalog_0.npz           # one ~120k-galaxy realization
 echoes-draw --seed 0 --n 100 --out-prefix cat_      # a 100-member ensemble
 ```
 ```python
@@ -43,6 +46,11 @@ from echoes import load_package, draw
 pkg = load_package("data_release/cmass_south_posterior.npz")
 cat = draw(pkg, seed=0)        # dict(ra, dec, z, prov, N) — equal-weight, cosmology-free
 ```
+`echoes-draw` uses `data_release/cmass_south_posterior.npz` when run from a
+repository clone. From a package install it downloads the same 2 MB posterior
+once into `~/.cache/echoes` (or `$ECHOES_DATA`) and verifies its SHA256 hash.
+Use `--out catalog.fits` after installing `echoes[fits]` if you prefer FITS.
+
 A reproducible ensemble is just the set of integer seeds. Pair the catalogs with
 `data_release/cmass_south_randoms.npz` and use **equal weights** (no completeness
 weights): the completion reproduces the official weighted BOSS clustering to ~1–2%.
@@ -55,7 +63,9 @@ redshift-failure · `3` imaging-systematic analog · `4` zhost-fallback.
   Cosmology-free, compresses to the 2 MB released posterior. Used for the release.
 - **graphGP (optional):** a conditional anisotropic Gaussian-process posterior over
   the density field (Matheron sampling on a sparse graph), giving correlated
-  redshift draws. `pip install echoes[graphgp]`. See [`docs/method.md`](docs/method.md).
+  redshift draws. Install with
+  `pip install "echoes[graphgp] @ git+https://github.com/yipihey/ECHOES.git"`.
+  See [`docs/method.md`](docs/method.md).
 
 ## Repository layout
 ```
@@ -84,7 +94,9 @@ observed galaxies, randoms, a completeness map, and the weight components). See
 [`docs/adding_a_survey.md`](docs/adding_a_survey.md).
 
 ## Citation
-See [`CITATION.cff`](CITATION.cff). Please cite the ECHOES paper and the data DOI.
+See [`CITATION.cff`](CITATION.cff). Please cite the ECHOES repository and paper
+draft when sharing internally. The Zenodo data DOI is pending and should be added
+before public citation.
 
 ## License
 MIT — see [`LICENSE`](LICENSE).

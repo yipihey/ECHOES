@@ -13,8 +13,7 @@ and report:
     scatter — the completion uncertainty is the *added* uncertainty from the
     unobserved galaxies, and should be the smaller, sub-dominant term.
 
-    PYTHONPATH=/home/tabel/Projects/graphgp:/home/tabel/Projects/graphGP-cosmology \
-    OMP_NUM_THREADS=32 JAX_PLATFORMS=cpu ~/.venv/k3d/bin/python3 demos/recovery_calibration.py
+    OMP_NUM_THREADS=32 JAX_PLATFORMS=cpu python validation/calibration.py
 """
 import argparse, glob, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

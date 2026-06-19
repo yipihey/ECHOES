@@ -1,8 +1,8 @@
 """Generate uniform-geometric randoms from the BOSS DR12 mangle mask (one-time).
 
 Run with the Anaconda Python (which has Python.h so pymangle builds):
-    ~/.local/share/anaconda3/bin/python3 -m pip install pymangle
-    ~/.local/share/anaconda3/bin/python3 demos/make_mangle_randoms.py
+    python -m pip install "echoes[mask] @ git+https://github.com/yipihey/ECHOES.git"
+    python data/make_mangle_randoms.py
 
 Mask (18 MB, 33072 polygons):
     https://data.sdss.org/sas/dr12/boss/lss/mask_DR12v5_CMASS_South.ply

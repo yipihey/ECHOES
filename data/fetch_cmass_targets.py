@@ -10,8 +10,8 @@ objects are included), and LEFT JOIN SpecObjAll for ZWARNING/z so each target is
 flagged good-z / z-failure / never-fibered. Anonymous SkyServer SqlSearch is
 capped (~500k rows), so we tile over RA. Output: a trimmed FITS under data/boss/.
 
-    ~/.venv/k3d/bin/python3 demos/fetch_cmass_targets.py --test     # small patch
-    ~/.venv/k3d/bin/python3 demos/fetch_cmass_targets.py            # full SGC
+    python data/fetch_cmass_targets.py --test     # small patch
+    python data/fetch_cmass_targets.py            # full SGC
 
 CMASS selection (extinction-corrected; i is cmodel, g/r/i/z model):
   d_perp = (r-i) - (g-r)/8 > 0.55 ;  17.5 < i < 19.9 ;  r-i < 2
