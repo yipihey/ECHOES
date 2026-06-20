@@ -150,9 +150,15 @@ def los_overdensity(field_ctx, ra_m, dec_m, zgrid, *, n_samples: int = 0, seed: 
 
 
 def _fieldpost_zmiss(targets, photoz, dz_pool, field_ctx, draw_index,
-                     z_o, z_host, miss_kind, rng):
+                     z_o, z_host, miss_kind, rng, transform=None):
     """Missing-galaxy redshifts from the conditional field posterior along each
-    sightline. Mirrors :func:`completion._graphgp_zmiss`."""
+    sightline. Mirrors :func:`completion._graphgp_zmiss`.
+
+    ``transform`` (optional): a callable mapping the per-sightline conditional
+    field ``opd_all`` (shape ``(M, n_z)`` = ``1+δ``) to a reshaped field — the
+    Tier-A measured monotonic transform ``T`` (:mod:`echoes.generative`). ``None``
+    (the fieldpost default) leaves the Gaussian field untouched, so the fieldpost
+    engine is byte-for-byte unchanged."""
     from .photoz import photoz_features
     from .completion import _clpair_density
     fc = field_ctx
@@ -180,6 +186,8 @@ def _fieldpost_zmiss(targets, photoz, dz_pool, field_ctx, draw_index,
         opd_all = fc._los_draw_cache[1][:, draw_index % ns, :]
     else:
         opd_all = los_overdensity(fc, ra_m, dec_m, zgrid)     # posterior mean (M, n_z)
+    if transform is not None:
+        opd_all = transform(opd_all)                          # Tier-A non-Gaussian reshape
     bw_p = 0.02
     M = len(ra_m)
     z_miss = np.empty(M); fb = np.zeros(M, bool)

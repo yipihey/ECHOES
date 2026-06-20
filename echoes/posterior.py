@@ -117,6 +117,97 @@ def build_package(catalog, targets, photoz, *, dz_pool=None, nq=65, ngrid=256,
     }
 
 
+def build_package_generative(catalog, targets, photoz, gen_model, *, dz_pool=None,
+                             nq=65, ngrid=256, bw_p=0.02, jitter=None, verbose=False):
+    """Compact posterior package for the Tier-A generative engine.
+
+    Identical layout to :func:`build_package` (same keys → the compact ``.npz`` and
+    numpy-only ``data_release/draw_samples.py`` reproduce it with **zero changes**),
+    but the per-object missing posterior is the **field-marginalized** generative one:
+
+        p(z | n̂, colours) ∝ T(1+δ_post(n̂, z)) · n̄(z) · p_photoz(z)   (× close-pair),
+
+    i.e. the fieldpost conditional posterior MEAN along each sightline (marginalised
+    over field draws) pushed through the measured transform ``T`` — the same field
+    the full engine samples, baked once into the inverse-CDF. Carries a
+    ``package_engine='generative'`` tag (write/load preserve it, backward-compatibly).
+    """
+    from .photoz import photoz_features
+    from .fieldpost import los_overdensity
+
+    ra_o = np.asarray(catalog.ra_data, np.float64)
+    dec_o = np.asarray(catalog.dec_data, np.float64)
+    z_o = np.asarray(catalog.z_data, np.float64)
+    wsys_o = np.asarray(catalog.w_sys_data if catalog.w_sys_data is not None
+                        else np.ones(len(ra_o)), np.float64)
+    host = np.asarray(targets.host_index)
+    z_host = np.where(host >= 0, z_o[np.clip(host, 0, len(z_o) - 1)], np.nan)
+    miss_kind = np.asarray(targets.miss_kind)
+    if dz_pool is None:
+        dz_pool = measure_close_pair_dz(catalog)
+    dz_pool = np.asarray(dz_pool, np.float64)
+    if jitter is None:
+        jitter = 0.002
+
+    feat = photoz_features(targets.colors, targets.mags)
+    zk, wk = photoz.posterior(feat)
+    M = len(host)
+    zmin, zmax = float(z_o.min()), float(z_o.max())
+    zgrid = np.linspace(zmin, zmax, ngrid)
+    pcl = _clpair_density(dz_pool)
+    coll_i = (miss_kind == "collided") & (host >= 0)
+    qlev = np.linspace(0.0, 1.0, nq)
+
+    # field posterior MEAN along every missing sightline (marginalised over draws),
+    # reshaped by the measured transform — the same field the full engine samples.
+    fc = gen_model.field_ctx
+    nbar_z = np.interp(zgrid, fc.z_centres, fc.nz_profile, left=0.0, right=0.0)
+    opd_all = los_overdensity(fc, np.asarray(targets.ra, np.float64),
+                              np.asarray(targets.dec, np.float64), zgrid)   # (M, ngrid)
+    tf = gen_model.los_transform()
+    if tf is not None:
+        opd_all = tf(opd_all)
+
+    invcdf = np.empty((M, nq), np.float64)
+    fallback = np.zeros(M, bool)
+    for i in range(M):
+        pf = np.clip(opd_all[i], 0.0, None) * nbar_z
+        w = wk[i]; ok = np.isfinite(w) & (w > 0)
+        pp = ((w[ok][None, :] * np.exp(-0.5 * ((zgrid[:, None] - zk[i][ok][None, :]) / bw_p) ** 2)).sum(1)
+              if ok.any() else np.ones_like(zgrid))
+        p = pf * pp
+        if coll_i[i]:
+            p = p * pcl(zgrid - z_host[i])
+        s = p.sum()
+        if s > 0:
+            cdf = np.maximum.accumulate(np.cumsum(p) / s)
+            u, idx = np.unique(cdf, return_index=True)
+            invcdf[i] = np.interp(qlev, u, zgrid[idx])
+        else:
+            invcdf[i] = z_host[i] if np.isfinite(z_host[i]) else float(np.median(z_o))
+            fallback[i] = True
+    if verbose:
+        print(f"[build_package_generative] {M:,} posteriors, nq={nq}, "
+              f"transform={gen_model.transform.kind}, fallback={int(fallback.sum())}")
+
+    miss_prov = np.where(fallback, PROV["zhost"],
+                         np.where(miss_kind == "collided", PROV["collided"], PROV["zfail"]))
+    base_ra = np.concatenate([ra_o, np.asarray(targets.ra, np.float64)]).astype(np.float32)
+    base_dec = np.concatenate([dec_o, np.asarray(targets.dec, np.float64)]).astype(np.float32)
+    base_wsys = np.concatenate([wsys_o, wsys_o[np.clip(host, 0, len(z_o) - 1)]]).astype(np.float32)
+    base_prov = np.concatenate([np.full(len(ra_o), PROV["observed"], np.int8), miss_prov.astype(np.int8)])
+
+    return {
+        "n_obs": len(ra_o), "n_miss": M, "zmin": zmin, "zmax": zmax,
+        "qlev": qlev.astype(np.float32), "jitter": float(jitter),
+        "obs_z": z_o.astype(np.float32),
+        "base_ra": base_ra, "base_dec": base_dec,
+        "base_wsys": base_wsys, "base_prov": base_prov,
+        "invcdf": invcdf.astype(np.float32),
+        "package_engine": "generative",
+    }
+
+
 def _quant(a, lo, hi):
     return np.clip(np.round((a - lo) / (hi - lo) * 65535.0), 0, 65535).astype(np.uint16)
 
@@ -137,6 +228,7 @@ def write_package(pkg, path):
         base_ra=pkg["base_ra"], base_dec=pkg["base_dec"],              # float32 positions
         base_wsys=pkg["base_wsys"].astype(np.float16),
         base_prov=pkg["base_prov"],
+        package_engine=str(pkg.get("package_engine", "field")),
     )
 
 
@@ -150,6 +242,7 @@ def load_package(path):
         "invcdf": _dequant(d["invcdf_q"], zmin, zmax).astype(np.float64),
         "base_ra": d["base_ra"], "base_dec": d["base_dec"],
         "base_wsys": d["base_wsys"].astype(np.float32), "base_prov": d["base_prov"],
+        "package_engine": str(d["package_engine"]) if "package_engine" in d.files else "field",
     }
 
 

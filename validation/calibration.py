@@ -36,6 +36,9 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--n-mocks", type=int, default=6)
     p.add_argument("--n-real", type=int, default=10)
+    p.add_argument("--engine", choices=["field", "fieldpost", "generative"], default="field",
+                   help="redshift engine under test (G7 calibration)")
+    p.add_argument("--transform", default="empirical", help="generative transform")
     p.add_argument("--out", default="output/recovery_calibration.png")
     args = p.parse_args()
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
@@ -61,9 +64,24 @@ def main():
         wt, RRwp = wp_rp(ra, dec, zz, rar, decr, zr, rp_edges=rp_edges, pimax=40., nthreads=32,
                          precomp_RR=RRwp, return_RR=True)
         wp_truth.append(wt)
+        # engine under test: 'field' (default KNN-KDE), or the field-level engines
+        # whose ensemble spread comes from n_real distinct field draws (draw_index =
+        # seed % n_samples). 'generative' adds the measured non-Gaussian transform.
+        ckw = {}
+        if args.engine in ("fieldpost", "generative"):
+            from echoes.fieldpost import build_field_context
+            fctx = build_field_context(obs, seed=mi, n_samples=args.n_real,
+                                       sel_map=cat.sel_map, nside=cat.nside)
+            if args.engine == "fieldpost":
+                ckw = dict(z_mode="fieldpost", field_ctx=fctx)
+            else:
+                from echoes.generative import build_generative_model
+                gm = build_generative_model(obs, transform=args.transform, field_ctx=fctx,
+                                            cic_randoms=(rar, decr, zr))
+                ckw = dict(z_mode="generative", gen_model=gm)
         W = []
         for s in range(args.n_real):
-            c = complete_catalog_photoz(obs, tg, pz, seed=100*mi+s, dz_pool=dz)
+            c = complete_catalog_photoz(obs, tg, pz, seed=100*mi+s, dz_pool=dz, **ckw)
             W.append(wp_rp(np.asarray(c["ra"]), np.asarray(c["dec"]), np.asarray(c["z"]),
                            rar, decr, zr, rp_edges=rp_edges, pimax=40., nthreads=32, precomp_RR=RRwp))
         wp_ens.append(np.array(W))

@@ -41,7 +41,7 @@ def sample_inpaint_catalog(footprint, *, donor_ra, donor_dec, donor_z,
                            rand_ra, rand_dec, donor_colors=None, donor_mags=None,
                            mode="thin", seed=0, density_boost=1.0, uncert_scale_deg=1.0,
                            thin_oversample=8, thin_aperture_deg=0.7,
-                           field_ctx=None, cr_nz=40):
+                           field_ctx=None, cr_nz=40, transform=None):
     """Generate inpaint galaxies in the fill region of ``footprint``.
 
     Returns ``dict(ra, dec, z, prov, uncert)`` of NEW galaxies (``prov``=5). ``mode``:
@@ -111,7 +111,12 @@ def sample_inpaint_catalog(footprint, *, donor_ra, donor_dec, donor_z,
         pix_ra = np.degrees(phi); pix_dec = 90.0 - np.degrees(theta)
         zgrid = np.linspace(float(np.min(donor_z)), float(np.max(donor_z)), int(cr_nz))
         nbar_z = np.clip(footprint.nbar_z(zgrid), 0.0, None)
-        opd = np.clip(los_overdensity(field_ctx, pix_ra, pix_dec, zgrid, n_samples=1, seed=seed)[:, 0, :], 0.0, None)
+        opd = los_overdensity(field_ctx, pix_ra, pix_dec, zgrid, n_samples=1, seed=seed)[:, 0, :]
+        # Tier-A non-Gaussian reshape of the per-pixel conditional field before it
+        # sets the Poisson intensity (echoes.density_transform); None ⇒ Gaussian.
+        if transform is not None:
+            opd = transform(opd)
+        opd = np.clip(opd, 0.0, None)
         pz_pix = nbar_z[None, :] * opd                          # (Npix, nz) unnormalised p(z)
         opd_ang = pz_pix.sum(1) / max(nbar_z.sum(), 1e-12)      # n(z)-weighted mean (1+δ) per pix
         n_cov = max(int((footprint.observed_cover > 0).sum()), 1)

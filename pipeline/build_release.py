@@ -10,8 +10,10 @@ Writes:
   data_release/README.md                   quickstart
 
     OMP_NUM_THREADS=16 JAX_PLATFORMS=cpu python pipeline/build_release.py
+    # Tier-A non-Gaussian generative engine (behind the gates):
+    OMP_NUM_THREADS=16 JAX_PLATFORMS=cpu python pipeline/build_release.py --engine generative
 """
-import os, sys
+import argparse, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import numpy as np
 from echoes.surveys.boss import load_boss
@@ -28,6 +30,15 @@ N_RAND_MULT = 4          # randoms = 4x N_data (uniform-footprint; users can dra
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--engine", choices=["field", "generative"], default="field",
+                    help="'field' (default, KNN-KDE local density) or 'generative' "
+                         "(Tier-A data-driven non-Gaussian field; behind the gates)")
+    ap.add_argument("--transform", default="empirical",
+                    help="generative transform: empirical|lognormal|identity")
+    ap.add_argument("--cic-R", type=float, default=8.0, help="CiC scale [Mpc/h] for T")
+    args = ap.parse_args()
+
     os.makedirs(OUT, exist_ok=True)
     cat = load_boss([DATA], [RAND], sample="CMASS", nside=256, with_photometry=True)
     z = np.asarray(cat.z_data); feat = photoz_features(cat.colors_data, cat.mags_data)
@@ -36,7 +47,12 @@ def main():
     tg = load_cmass_targets(cat, path=TARGETS, seed=0)
 
     # ---- posterior package ----
-    pkg = PS.build_package(cat, tg, pz, dz_pool=dz, verbose=True)
+    if args.engine == "generative":
+        from echoes.generative import build_generative_model
+        gm = build_generative_model(cat, transform=args.transform, cic_R=args.cic_R, verbose=True)
+        pkg = PS.build_package_generative(cat, tg, pz, gm, dz_pool=dz, verbose=True)
+    else:
+        pkg = PS.build_package(cat, tg, pz, dz_pool=dz, verbose=True)
     ppath = os.path.join(OUT, "cmass_south_posterior.npz")
     PS.write_package(pkg, ppath)
     psz = os.path.getsize(ppath)

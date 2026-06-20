@@ -220,6 +220,7 @@ class DensityFieldResult:
         sample_idx: int = 0,
         seed: int = 0,
         w_completeness: Optional[np.ndarray] = None,
+        transform=None,
     ) -> dict:
         """Sample a new galaxy catalog from one posterior density field draw.
 
@@ -291,6 +292,16 @@ class DensityFieldResult:
         # ── 3. Poisson rate per voxel ─────────────────────────────────────
         delta_vox  = np.asarray(self.delta_lightcone[sample_idx],
                                 dtype=np.float64)          # (n_z, N_pix)
+        # Tier-A non-Gaussian reshape: push the Gaussian field (1+δ) through the
+        # measured monotonic transform T (echoes.density_transform) over occupied
+        # voxels before Poisson sampling, so the realised catalog has the data's
+        # one-point + kNN-CDF structure. transform=None ⇒ the Gaussian field as-is.
+        if transform is not None:
+            occ = np.isfinite(delta_vox) & (delta_vox > 0)
+            if occ.any():
+                mu = float(delta_vox[occ].mean()); sig = float(delta_vox[occ].std())
+                delta_vox = delta_vox.copy()
+                delta_vox[occ] = transform(delta_vox[occ], mu=mu, sigma=sig)
         lambda_vox = np.maximum(alpha_w * nrand_vox * delta_vox, 0.0)
 
         # The density field is normalised to mean=1 at *data positions*
@@ -745,6 +756,7 @@ def sample_posterior_density_field(
     r_edges: Optional[np.ndarray] = None,
     nthreads: int = 4,
     seed: int = 0,
+    w_extra: Optional[np.ndarray] = None,
     verbose: bool = True,
 ) -> DensityFieldResult:
     """Sample an ensemble of smooth 3D galaxy density fields from a survey catalog.
@@ -892,6 +904,14 @@ def sample_posterior_density_field(
     if w_completeness is None and w_data is not None:
         if not np.allclose(w_data, 1.0, rtol=1e-3):
             w_completeness = w_data.copy()
+
+    # Tier-A data-driven SP RESIDUAL decontamination: fold ISD weights (1/F vs the
+    # SP templates; echoes.sp_maps.isd_decontamination) on top of WEIGHT_SYSTOT so
+    # the generated field is flat against the imaging systematics the global
+    # WEIGHT_SYSTOT missed. w_extra=None ⇒ WEIGHT_SYSTOT-only (the prior behaviour).
+    if w_extra is not None:
+        we = np.asarray(w_extra, dtype=np.float64)
+        w_completeness = (np.ones(N_D) if w_completeness is None else w_completeness) * we
 
     # Alpha for FKP: Σw_completeness / N_random so the mean-field is correctly
     # normalised when galaxies have unequal completeness corrections.

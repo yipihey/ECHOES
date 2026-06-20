@@ -60,12 +60,22 @@ def gal_b(ra, dec):
     return np.abs(c.b.deg)
 
 
-def build_sp_maps(cat, with_gaia=False):
+def build_sp_maps(cat, with_gaia=False, with_imaging_sp=True):
     ra = np.asarray(cat.ra_data); dec = np.asarray(cat.dec_data)
     sp = {}
     # WEIGHT_SYSTOT (the reference imaging systematic)
     if cat.w_sys_data is not None:
         sp["w_systot"] = _map_from_values(ra, dec, np.asarray(cat.w_sys_data))
+    # full imaging-SP suite (skyflux, depth, seeing, airmass, E(B-V)) from the
+    # randoms — the previously-unloaded columns (echoes.sp_maps); built at NSIDE_SP
+    # so they merge directly into this dict.
+    if with_imaging_sp:
+        try:
+            from echoes.sp_maps import load_sp_maps
+            smp = load_sp_maps(RAND, nside=NSIDE_SP, verbose=False)
+            sp.update(smp.maps)
+        except Exception as e:
+            print(f"  (imaging-SP suite unavailable: {type(e).__name__}: {e})")
     # Galactic extinction (r-band) from the raw FITS, mapped
     try:
         from astropy.io import fits

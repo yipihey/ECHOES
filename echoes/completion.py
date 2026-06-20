@@ -456,6 +456,8 @@ def complete_catalog_photoz(
     gp_kwargs=None,
     field_ctx=None,
     fieldpost_kwargs=None,
+    gen_model=None,
+    gen_kwargs=None,
     inpaint: bool = False,
     inpaint_mode: str = "thin",
     fill_footprint=None,
@@ -510,6 +512,15 @@ def complete_catalog_photoz(
       for ensembles). ``gp_kwargs`` (dict) overrides the build (nside, n_z_bins,
       r_edges, …). The fiducial cosmology in the GP prior is a gauge/unit choice
       (validated cosmology-invariant to <0.1%), so this stays data-driven.
+    - ``'generative'``: the **Tier-A purely data-driven non-Gaussian field**
+      (:mod:`echoes.generative`) — the fieldpost conditional posterior with the
+      per-sightline ``1+δ`` pushed through a measured monotonic transform ``T`` fit
+      from the data's own counts-in-cells PDF, so the completion reproduces the
+      data's one-point + kNN-CDF structure the stationary GP cannot, while staying
+      rank-preserving (calibration intact). Pass a precomputed ``gen_model``
+      (:func:`generative.build_generative_model`) to amortise across an ensemble;
+      ``gen_kwargs`` overrides the build. ``transform='identity'`` ⇒ exactly
+      ``fieldpost`` (the Stage-1 parity skeleton).
     - ``'nn'``: nearest-neighbour host z (+ close-pair Δz for collisions). Sharp.
     - ``'photoz'``: per-object p(z|colours) only (LOS-smeared).
     """
@@ -616,6 +627,21 @@ def complete_catalog_photoz(
         draw_index = seed % max(1, getattr(field_ctx, "n_samples", 1))
         z_miss, zhost_fallback = _fieldpost_zmiss(targets, photoz, dz_pool, field_ctx,
                                                   draw_index, z_o, z_host, miss_kind, rng)
+    elif z_mode == "generative":
+        # TIER-A GENERATIVE FIELD (purely data-driven non-Gaussian): the fieldpost
+        # conditional posterior with the per-sightline 1+δ pushed through a measured
+        # monotonic transform T (fit from the data's own counts-in-cells PDF), so the
+        # completion reproduces the data's one-point + non-Gaussian (kNN-CDF) structure
+        # while staying rank-preserving (calibration intact). transform='identity' ⇒
+        # exactly fieldpost. Pass a precomputed gen_model to amortise the build across
+        # an ensemble (realization = seed % n_samples); else build one. gen_kwargs
+        # overrides the build (transform, cic_R, sp_reference, fieldpost_kwargs, …).
+        from .generative import build_generative_model, _generative_zmiss
+        if gen_model is None:
+            gen_model = build_generative_model(catalog, seed=seed, **(gen_kwargs or {}))
+        draw_index = seed % max(1, gen_model.n_samples)
+        z_miss, zhost_fallback = _generative_zmiss(targets, photoz, dz_pool, gen_model,
+                                                   draw_index, z_o, z_host, miss_kind, rng)
     else:
         # 'photoz': per-object redshift from p(z|colours) × close-pair prior (more
         # realistic per-object z, but LOS-smeared — degrades 3-D redshift-space clustering).
