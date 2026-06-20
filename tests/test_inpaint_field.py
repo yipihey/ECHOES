@@ -3,6 +3,7 @@ import numpy as np
 
 from echoes.fill_footprint import build_fill_footprint
 from echoes.inpaint_field import sample_inpaint_catalog, PROV_INPAINT
+from echoes.completion import fill_regime, PROV
 
 
 def _patch(n=200_000, lo=0.0, hi=12.0, hole=(6.0, 6.0, 1.5), seed=0):
@@ -47,3 +48,14 @@ def test_no_holes_returns_empty():
     out = sample_inpaint_catalog(fp, donor_ra=ra_r[:30_000], donor_dec=dec_r[:30_000],
                                  donor_z=z, rand_ra=ra_r, rand_dec=dec_r, mode="analog")
     assert len(out["ra"]) == 0 and out["prov"].dtype == np.int8
+
+
+def test_fill_regime_flags_prior_inpaint():
+    prov = np.array([PROV["observed"], PROV["collided"], PROV["inpaint"], PROV["inpaint"]])
+    uncert = np.array([0.0, 0.0, 0.1, 0.9])
+    regime, is_prior = fill_regime(prov, uncert, prior_thresh=0.5)
+    assert list(regime) == ["observed", "completed", "inpaint_data", "inpaint_prior"]
+    assert list(is_prior) == [False, False, False, True]
+    # without uncert, inpaint galaxies are conservatively flagged prior
+    _, is_prior2 = fill_regime(prov)
+    assert is_prior2.sum() == 2

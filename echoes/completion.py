@@ -287,7 +287,7 @@ PROV_COLOR = {
     PROV["zfail"]:    "#c071ff",   # purple — redshift-failure completion
     PROV["systot"]:   "#ffb84d",   # orange — imaging-systematic inpaint
     PROV["zhost"]:    "#ff6f61",   # red    — fiber-collision (host-z fallback)
-    PROV["inpaint"]:  "#41d6b0",   # teal   — mask-hole inpaint (reserved)
+    PROV["inpaint"]:  "#41d6b0",   # teal   — generative mask-hole / empty-region inpaint
 }
 # short + long human labels per code (the viewer manifest and any legend use these).
 PROV_LABEL = {
@@ -304,7 +304,9 @@ PROV_DESCRIPTION = {
     PROV["zfail"]:    "ECHOES galaxy restored for a failed spectroscopic redshift.",
     PROV["systot"]:   "ECHOES analog galaxy sampled from the WEIGHT_SYSTOT multiplicity model (synthetic inpaint, not a real missing galaxy).",
     PROV["zhost"]:    "Fiber-collision completion whose redshift fell back to the host galaxy.",
-    PROV["inpaint"]:  "Synthetic point filling a masked imaging hole (reserved; not currently produced).",
+    PROV["inpaint"]:  "Generated galaxy filling a veto-mask hole / empty region where there is no "
+                      "imaging (no real counterpart). Carries a per-galaxy `uncert` prior-dominance "
+                      "flag; large-region fills are prior-dominated (IS_PRIOR_FILL) — see fill_regime().",
 }
 
 
@@ -339,6 +341,32 @@ def group_registry():
         out[g] = {"label": g.replace(":", " — "), "color": color,
                   "codes": [c for c in sorted(PROV.values()) if PROV_GROUP[c] == g]}
     return out
+
+
+def fill_regime(prov, uncert=None, *, prior_thresh=0.5):
+    """Per-galaxy fill regime + the ``IS_PRIOR_FILL`` guard for the completed catalog.
+
+    Returns ``(regime, is_prior_fill)``. ``regime`` ∈ {observed, completed, inpaint_data,
+    inpaint_prior}: observed spec-z; completed = restored spec-missing (collision/zfail/
+    systot); inpaint_data = generated in a data-constrained hole (low ``uncert``);
+    inpaint_prior = generated in a prior-dominated empty region (``uncert >= prior_thresh``).
+    ``is_prior_fill`` flags the inpaint_prior galaxies so a conservative analysis can drop
+    or down-weight them — these are NOT a reconstruction of specific galaxies, only a
+    statistically-faithful fill. Pass the ``uncert`` array from ``complete_catalog_photoz``;
+    without it, all inpaint galaxies are flagged conservatively as prior."""
+    prov = np.asarray(prov)
+    regime = np.full(len(prov), "completed", dtype="<U13")
+    regime[prov == PROV["observed"]] = "observed"
+    is_ip = prov == PROV["inpaint"]
+    if uncert is None:
+        regime[is_ip] = "inpaint_prior"
+        return regime, is_ip
+    u = np.asarray(uncert)
+    data_fill = is_ip & (u < prior_thresh)
+    prior_fill = is_ip & (u >= prior_thresh)
+    regime[data_fill] = "inpaint_data"
+    regime[prior_fill] = "inpaint_prior"
+    return regime, prior_fill
 
 
 def _systot_restore_extras(base_ra, base_dec, base_z, src, rng, jitter_arcsec=1.0):
