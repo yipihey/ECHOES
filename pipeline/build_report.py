@@ -461,6 +461,75 @@ th,td{padding:5px 14px;text-align:left;border-bottom:1px solid #e6e6e6;} th{back
 """
 
 
+def _data_tab(pimg):
+    """The 'Underlying data' tab: visualization + analysis of the real input data
+    (SDSS imaging, foreground dust, the angular mask and randoms). Figures are the
+    static PNGs produced by validation/dust_correlation.py and
+    validation/randoms_weight_map.py; pimg() embeds them (graceful if absent)."""
+    H = ["<div id='tab-data' style='display:none'>"]
+    H.append("<h2>The underlying data</h2>")
+    H.append("<p class='lead'>ECHOES restores spectroscopically-missing galaxies onto the "
+             "<b>real SDSS imaging</b> the BOSS CMASS targets were selected from, inside the "
+             "BOSS angular mask. This tab visualises and stress-tests that input data: the "
+             "imaging itself, the foreground Galactic dust, and the random catalogue / mask "
+             "geometry that every clustering measurement rides on.</p>")
+
+    H.append("<h3 id='data-imaging'>The imaging the targets came from</h3>")
+    H.append("<p>The CMASS photo-z catalogue and spectroscopic targets were selected from SDSS "
+             "imaging. The <a href='visualizer/'>WebGPU visualizer</a> can render that actual "
+             "SDSS DR9 colour imagery as a backdrop (the <i>Imaging survey (SDSS)</i> toggle): a "
+             "flat sky image in 2-D and a spherical cap in 3-D, sampled over the footprint via "
+             "CDS hips2fits. The dark patches are mostly the cosmic web and the survey mask, with "
+             "foreground Milky-Way dust a secondary modulation — quantified next.</p>")
+
+    H.append("<h3 id='data-dust'>Foreground dust vs galaxy density</h3>")
+    H.append("<p>We query the real Schlegel–Finkbeiner–Davis (SFD) dust map and correlate "
+             "E(B–V) with the catalogue densities (jackknife errors). The field is high "
+             "Galactic latitude (|b|≈24–67°) but dust is present, A_r up to "
+             "~0.33 mag. Cross-check: 2.751·E(B–V)<sub>SFD</sub> vs the catalogue's "
+             "SFD-derived A_r gives Pearson r=1.0000.</p>")
+    H.append(pimg("output/dust_correlation.png") +
+             "<figcaption><b>Density vs SFD E(B–V).</b> The spectroscopic galaxies are flat "
+             "with dust (no significant trend, χ²/dof≈1). The raw photometric-target "
+             "rise is <b>stellar contamination</b>, not galaxies: spec-confirmed stars climb ~3× "
+             "toward high extinction (orange), while the galaxy component stays flat. This is the "
+             "imaging systematic that star-galaxy separation + WEIGHT_SYSTOT remove before the "
+             "released catalogue.</figcaption></figure>")
+
+    H.append("<h3 id='data-mask'>The angular mask and randoms</h3>")
+    H.append("<p>BOSS randoms are generated over the mangle veto mask, so the holes in the galaxy "
+             "footprint are absent in the randoms too — required for an unbiased Landy–Szalay "
+             "estimator. About 3.4% of the footprint is veto holes, and only 0.2% of galaxies land "
+             "in random-empty pixels (bin-edge effects); the in-hole galaxy density is 17× below "
+             "the open footprint. The randoms and galaxies share the same mask.</p>")
+    H.append(pimg("output/randoms_weight_map.png") +
+             "<figcaption><b>Randoms completeness map vs galaxy density (RA–Dec).</b> Left: random "
+             "surface density (log) — the angular selection function, holes are mangle vetoes. "
+             "Right: galaxy density (~10′ smoothing, log) showing the cosmic web on the same "
+             "footprint. Bottom: a zoom (red box) exposing the survey geometry.</figcaption></figure>")
+
+    H.append("<h3 id='data-geometry'>Survey geometry: holes, stripes, sectors</h3>")
+    H.append("<p>The shapes are fingerprints of how SDSS imaged and how BOSS tiled. "
+             "<b>Round holes</b> are bright-star (Tycho-2) veto masks, radius scaling with stellar "
+             "brightness. The <b>rectangular holes and “square stripes”</b> are vetoed SDSS "
+             "imaging fields and bad columns: imaging is a drift-scan with a rectangular CCD field "
+             "as its atomic unit, so flagged fields/runs mask out as rectangles aligned with the "
+             "scan. The <b>polygonal mosaic</b> is the spectroscopic tiling — overlapping "
+             "circular 1.49° plates carve the footprint into sectors, each with its own "
+             "fiber-assignment completeness (per-sector random-density CV ≈ 9%).</p>")
+    H.append(pimg("output/randoms_weight_map_sector_fkp.png") +
+             "<figcaption><b>Tiling-sector completeness + FKP weighting.</b> Left: per-ISECT random "
+             "density — the BOSS plate-overlap mosaic (red ≈ full completeness, blue ≈ "
+             "~0.75 in the under-tiled north). Right: the FKP-weighted random density; FKP is a "
+             "radial n(z) weight, so its angular structure just tracks the mask.</figcaption></figure>")
+
+    H.append("<div class='callout'>Reproduce: <code>python validation/dust_correlation.py</code> "
+             "(needs <code>dustmaps</code> + the SFD map) and "
+             "<code>python validation/randoms_weight_map.py</code>.</div>")
+    H.append("</div>")  # end tab-data
+    return "".join(H)
+
+
 def render(D, figs, Dm, Dc):
     from tools.veusz_vsz import EMBED_SCRIPT
     g = lambda k: float(D[k])
@@ -488,7 +557,8 @@ def render(D, figs, Dm, Dc):
     H.append("<div class='tabbar'>"
              "<button id='btn-completion' class='active' onclick=\"showTab('completion')\">"
              "Completion (default · KNN)</button>"
-             "<button id='btn-graphgp' onclick=\"showTab('graphgp')\">graphGP route</button></div>")
+             "<button id='btn-graphgp' onclick=\"showTab('graphgp')\">graphGP route</button>"
+             "<button id='btn-data' onclick=\"showTab('data')\">Underlying data</button></div>")
     H.append("<div id='tab-completion'>")
     H.append("<nav>" + " ".join(
         f"<a href='#{i}'>{t}</a>" for i, t in [
@@ -1082,8 +1152,10 @@ def render(D, figs, Dm, Dc):
              "<code>validation/graphgp_cosmology_invariance.py</code>.</p>")
     H.append("</div>")  # end tab-graphgp
 
+    H.append(_data_tab(pimg))
+
     H.append("<script>function showTab(t){"
-             "for(const x of ['completion','graphgp']){"
+             "for(const x of ['completion','graphgp','data']){"
              "document.getElementById('tab-'+x).style.display=(x===t)?'block':'none';"
              "document.getElementById('btn-'+x).classList.toggle('active',x===t);}"
              "window.scrollTo(0,0);}</script>")

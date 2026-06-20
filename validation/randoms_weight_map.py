@@ -36,7 +36,7 @@ def main():
     with fits.open(RAND) as h:
         rd = h[1].data
         rra = _wrap(rd["RA"]); rdec = np.asarray(rd["DEC"], float)
-        wfkp = np.asarray(rd["WEIGHT_FKP"], float)
+        wfkp = np.asarray(rd["WEIGHT_FKP"], float); isect = np.asarray(rd["ISECT"])
     with fits.open(DATA) as h:
         gd = h[1].data
         gra = _wrap(gd["RA"]); gdec = np.asarray(gd["DEC"], float)
@@ -134,6 +134,51 @@ def main():
     fig.tight_layout()
     fig.savefig(args.out, dpi=120, bbox_inches="tight")
     print(f"\nsaved {args.out}")
+
+    # ---- second figure: tiling-sector completeness (ISECT) + FKP-weighted map ----
+    nDec = len(dec_edges) - 1; npix = (len(ra_edges) - 1) * nDec
+    ri = np.clip(np.digitize(rra, ra_edges) - 1, 0, len(ra_edges) - 2)
+    rj = np.clip(np.digitize(rdec, dec_edges) - 1, 0, nDec - 1)
+    pflat = ri * nDec + rj
+    # each pixel sits in one mangle SECTOR (ISECT); per-sector random density (randoms
+    # per footprint-pixel) is the angular completeness the randoms were laid down with.
+    pix_sect = np.full(npix, -1, dtype=np.int64); pix_sect[pflat] = isect
+    usect, inv = np.unique(isect, return_inverse=True)
+    rand_per = np.bincount(inv, minlength=len(usect)).astype(float)
+    occ_pix = np.flatnonzero(occ.ravel())
+    idx = np.searchsorted(usect, pix_sect[occ_pix])
+    pix_per = np.bincount(idx, minlength=len(usect)).astype(float)
+    dens_per = rand_per / np.maximum(pix_per, 1.0)
+    big = pix_per >= 5
+    comp_norm = np.percentile(dens_per[big], 95)
+    cv = float(np.std(dens_per[big]) / np.mean(dens_per[big]))
+    comp_map = np.full(npix, np.nan); comp_map[occ_pix] = dens_per[idx] / comp_norm
+    comp_img = np.ma.masked_invalid(comp_map.reshape(len(ra_edges) - 1, nDec))
+    print(f"\nsectors: {len(usect):,} mangle sectors; per-sector random-density CV = {cv:.3f} "
+          f"({'completeness mosaic present' if cv > 0.03 else 'randoms ~uniform over mask'})")
+
+    fkp_dens = np.ma.masked_where(Rcount.T == 0, (Rweight / area).T)
+
+    fig2, ax2 = plt.subplots(1, 2, figsize=(19, 8.5), facecolor="white")
+    cv_lo, cv_hi = np.percentile(comp_map[occ_pix], [2, 98])
+    im = ax2[0].imshow(comp_img.T, origin="lower", extent=extent, aspect=aspect, cmap="turbo",
+                       vmin=cv_lo, vmax=cv_hi)
+    ax2[0].set_title("Tiling-sector completeness (per-ISECT random density)\n"
+                     f"{len(usect):,} sectors — the BOSS plate-overlap mosaic")
+    fig2.colorbar(im, ax=ax2[0], fraction=0.025, label="relative completeness")
+    fv = (Rweight / area)[occ]
+    im2 = ax2[1].imshow(fkp_dens, origin="lower", extent=extent, aspect=aspect, cmap="cividis",
+                        norm=LogNorm(vmin=np.percentile(fv, 8), vmax=np.percentile(fv, 99.5)))
+    ax2[1].set_title("FKP-weighted random density (sum WEIGHT_FKP)\n"
+                     "FKP is a radial n(z) weight; angular structure tracks the mask")
+    fig2.colorbar(im2, ax=ax2[1], fraction=0.025, label="sum WEIGHT_FKP / sq deg")
+    for a in ax2:
+        a.set_xlabel("RA [deg]"); a.set_ylabel("Dec [deg]"); a.set_facecolor("black")
+    fig2.suptitle("BOSS CMASS-South randoms: sector completeness + FKP weighting", y=0.99)
+    fig2.tight_layout()
+    out2 = args.out.replace(".png", "_sector_fkp.png")
+    fig2.savefig(out2, dpi=120, bbox_inches="tight")
+    print(f"saved {out2}")
 
 
 if __name__ == "__main__":
