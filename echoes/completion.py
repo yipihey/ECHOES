@@ -429,7 +429,7 @@ def complete_catalog_photoz(
     field_ctx=None,
     fieldpost_kwargs=None,
     inpaint: bool = False,
-    inpaint_mode: str = "analog",
+    inpaint_mode: str = "thin",
     fill_footprint=None,
     inpaint_kwargs=None,
     verbose: bool = False,

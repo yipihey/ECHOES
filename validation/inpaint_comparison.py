@@ -49,7 +49,7 @@ def main():
 
     c0 = complete_catalog_photoz(cat, tg, pz, seed=0, dz_pool=dz, inpaint=False, verbose=True)
     c1 = complete_catalog_photoz(cat, tg, pz, seed=0, dz_pool=dz, inpaint=True,
-                                 fill_footprint=fp, inpaint_mode="analog", verbose=True)
+                                 fill_footprint=fp, inpaint_mode="thin", verbose=True)
 
     print("\nprovenance census (inpaint on):")
     for code, n in zip(*np.unique(c1["prov"], return_counts=True)):

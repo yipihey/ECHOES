@@ -39,14 +39,23 @@ def _empty():
 
 def sample_inpaint_catalog(footprint, *, donor_ra, donor_dec, donor_z,
                            rand_ra, rand_dec, donor_colors=None, donor_mags=None,
-                           mode="analog", seed=0, density_boost=1.0,
-                           uncert_scale_deg=1.0):
+                           mode="thin", seed=0, density_boost=1.0, uncert_scale_deg=1.0,
+                           thin_oversample=8, thin_aperture_deg=0.7):
     """Generate inpaint galaxies in the fill region of ``footprint``.
 
     Returns ``dict(ra, dec, z, prov, uncert)`` of NEW galaxies (``prov``=5). ``mode``:
-    - ``'analog'`` (M1): transplant real donor galaxies into the interior holes
-      (``footprint.holes``), amplitude set selection-immune by the local collar ratio
-      × ``density_boost`` (≈⟨w_c⟩). Preserves higher-order clustering by construction.
+    - ``'thin'`` (default): Poisson-thin proposal randoms drawn uniformly over the
+      WHOLE intended footprint (incl. holes + large empty regions) by
+      ``fill_weight · (1+δ)``, where ``1+δ`` is the random-normalised angular
+      conditional field (:func:`echoes.selection_coupling.local_overdensity`) — the
+      aperture pulls the surrounding density into a hole, and reverts to the prior
+      (1+δ→1) in regions deeper than the aperture. Fills holes AND empty regions to
+      the surrounding mean density with the large-scale gradient. Redshifts ~ n̄(z).
+      (Small-scale stochastic structure inside large voids is mean-field here — the
+      full stochastic constrained realization is a documented refinement; those
+      galaxies carry a high ``uncert``.)
+    - ``'analog'``: transplant real donor galaxies into the interior holes only
+      (``footprint.holes``); preserves higher-order clustering, cosmology-free.
     Donors are the observed galaxies; ``rand_*`` the survey randoms (window).
     """
     if mode == "analog":
@@ -61,9 +70,29 @@ def sample_inpaint_catalog(footprint, *, donor_ra, donor_dec, donor_z,
         r = reals[0]
         ra = np.asarray(r["ra"], np.float32); dec = np.asarray(r["dec"], np.float32)
         z = np.asarray(r["z"], np.float32)
+    elif mode == "thin":
+        from .randoms import make_random_from_selection_function
+        from .selection_coupling import local_overdensity
+        rng = np.random.default_rng(seed)
+        n_data = len(np.atleast_1d(donor_ra))
+        n_prop = max(int(thin_oversample) * n_data, 1)
+        pr, pd, pz = make_random_from_selection_function(
+            footprint.target_mask.astype(float), n_prop, np.asarray(donor_z),
+            nside=footprint.nside, rng=rng)
+        fw = footprint.fill_weight[footprint.pix(pr, pd)]
+        sel = fw > 0
+        pr, pd, pz, fw = pr[sel], pd[sel], pz[sel], fw[sel]
+        if len(pr) == 0:
+            return _empty()
+        delta = local_overdensity(pr, pd, donor_ra, donor_dec, rand_ra, rand_dec,
+                                  aperture_deg=thin_aperture_deg, min_rand=10.0)
+        opd = np.clip(np.where(np.isfinite(delta), 1.0 + delta, 1.0), 0.0, None)
+        # alpha normalises the accepted density to the (completeness-corrected) parent
+        p_acc = np.clip(fw * opd * density_boost / float(thin_oversample), 0.0, 1.0)
+        acc = rng.random(len(pr)) < p_acc
+        ra = pr[acc].astype(np.float32); dec = pd[acc].astype(np.float32); z = pz[acc].astype(np.float32)
     else:
-        raise ValueError(f"inpaint mode {mode!r} not available yet (M1: 'analog' only; "
-                         "field-thin / constrained-realization engines arrive in M2)")
+        raise ValueError(f"inpaint mode {mode!r} not recognised ('thin' or 'analog')")
     if len(ra) == 0:
         return _empty()
     unc = _uncert(ra, dec, donor_ra, donor_dec, uncert_scale_deg)

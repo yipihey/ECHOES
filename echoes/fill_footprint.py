@@ -170,11 +170,13 @@ def build_fill_footprint(catalog=None, *, ra_random=None, dec_random=None, z_dat
         target_mask = target_mask & geom_near                  # trim only; never extend
     target_mask = target_mask | cover_bool                     # always keep covered pixels
 
-    # Only fill genuine veto holes (coverage ~0), feathered over [0, empty_thresh].
-    # Partial-completeness pixels are NOT filled here — they are already handled by the
-    # spec-missing restoration + WEIGHT_SYSTOT analogs (filling them too would double-count).
-    ramp = np.clip(1.0 - observed_cover / max(empty_thresh, 1e-6), 0.0, 1.0)
-    fill_weight = target_mask.astype(float) * ramp
+    # Fill only genuine zero-coverage pixels (veto holes + empty regions). Partial-
+    # completeness pixels (counts>0) are NOT filled — they already hold galaxies and are
+    # handled by the spec-missing restoration + WEIGHT_SYSTOT analogs (filling them would
+    # double-count and imprint a boundary ring). Total density stays continuous across a
+    # hole rim: real galaxies on the covered side, inpaint on the hole side, both at full
+    # density. ``empty_thresh`` keeps a small completeness tolerance for "covered".
+    fill_weight = (target_mask & (observed_cover <= empty_thresh * 1e-3)).astype(float)
 
     # split the fill region: small data-surrounded interior holes (Regime D) vs the
     # rest (Regime P — larger gaps / edges). find_interior_holes works on the counts.
