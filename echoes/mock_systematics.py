@@ -217,3 +217,98 @@ def apply_survey_systematics(
     kept_mask = np.zeros(n, bool); kept_mask[obs] = True
     targets_true_z = z[t_idx]            # ORACLE: the true redshifts of the missing (for diagnostics)
     return observed, targets, kept_mask, targets_true_z
+
+
+# ----------------------------------------------------------------------
+# Veto-mask hole injection (for the inpainting inject-and-recover tests)
+# ----------------------------------------------------------------------
+# A size ladder of synthetic holes (radius in degrees, n holes); spans the
+# data-constrained interior-hole regime (star/tile) to the prior-dominated
+# large-empty regime (medium/large) so recovery can be profiled vs hole size.
+DEFAULT_HOLE_LADDER = {
+    "star":   (2.0 / 60.0, 200),   # bright-star mask scale
+    "tile":   (12.0 / 60.0, 40),   # tiling / bad-field cluster
+    "medium": (0.5, 12),           # D-core, P-fringe
+    "large":  (1.5, 4),            # prior-dominated interior
+}
+
+
+@dataclass
+class HoleTruth:
+    """Record of injected veto holes + which galaxies they removed, for recovery."""
+    center_ra: np.ndarray          # (H,)
+    center_dec: np.ndarray         # (H,)
+    radius_deg: np.ndarray         # (H,)
+    hole_class: np.ndarray         # (H,) str
+    in_hole: np.ndarray            # (N_in,) bool per input galaxy
+    hole_id: np.ndarray            # (N_in,) int, -1 if not removed
+    r_edge_deg: np.ndarray         # (N_in,) distance-into-hole (radius - dist), NaN outside
+    removed_ra: np.ndarray = None  # truth of removed galaxies (filled by the wrapper)
+    removed_dec: np.ndarray = None
+    removed_z: np.ndarray = None
+
+
+def inject_mask_holes(ra, dec, *, hole_ladder=None, seed=0, centers_from_data=True):
+    """Stamp a size-ladder of circular veto holes onto ``(ra, dec)`` and mark the
+    galaxies they remove. Hole centres are drawn from the galaxy positions
+    (``centers_from_data``) so every hole is interior and data-surrounded. Returns a
+    :class:`HoleTruth`; ``r_edge_deg`` (radius − angular distance to centre) is the
+    distance-into-the-hole used to profile recovery vs the prior-dominance boundary.
+    """
+    from scipy.spatial import cKDTree
+    rng = np.random.default_rng(seed)
+    ra = np.asarray(ra, float); dec = np.asarray(dec, float); n = len(ra)
+    ladder = DEFAULT_HOLE_LADDER if hole_ladder is None else hole_ladder
+    nhat = _radec_to_nhat(ra, dec)
+    tree = cKDTree(nhat)
+
+    cras, cdecs, crad, ccls = [], [], [], []
+    in_hole = np.zeros(n, bool); hole_id = np.full(n, -1, int); r_edge = np.full(n, np.nan)
+    h = 0
+    for cls, (radius, n_holes) in ladder.items():
+        if centers_from_data and n:
+            sel = rng.choice(n, size=min(n_holes, n), replace=False)
+            cen_nhat = nhat[sel]; cen_ra = ra[sel]; cen_dec = dec[sel]
+        else:
+            cen_ra = rng.uniform(ra.min(), ra.max(), n_holes)
+            cen_dec = rng.uniform(dec.min(), dec.max(), n_holes)
+            cen_nhat = _radec_to_nhat(cen_ra, cen_dec)
+        chord = 2.0 * np.sin(np.radians(radius) / 2.0)
+        for k in range(len(cen_ra)):
+            idx = tree.query_ball_point(cen_nhat[k], chord)
+            if not idx:
+                cras.append(cen_ra[k]); cdecs.append(cen_dec[k]); crad.append(radius); ccls.append(cls); h += 1
+                continue
+            idx = np.asarray(idx)
+            dot = np.clip(nhat[idx] @ cen_nhat[k], -1.0, 1.0)
+            dist = np.degrees(np.arccos(dot))
+            re = radius - dist
+            # assign to this hole where it is deeper than any previous hole's r_edge
+            take = ~in_hole[idx] | (re > np.nan_to_num(r_edge[idx], nan=-np.inf))
+            ti = idx[take]
+            in_hole[ti] = True; hole_id[ti] = h; r_edge[ti] = re[take]
+            cras.append(cen_ra[k]); cdecs.append(cen_dec[k]); crad.append(radius); ccls.append(cls); h += 1
+
+    return HoleTruth(center_ra=np.array(cras), center_dec=np.array(cdecs),
+                     radius_deg=np.array(crad), hole_class=np.array(ccls, dtype="<U8"),
+                     in_hole=in_hole, hole_id=hole_id, r_edge_deg=r_edge)
+
+
+def apply_survey_systematics_with_holes(ra, dec, z, colors, mags, w_systot, *,
+                                        hole_ladder=None, hole_seed=1, **kw):
+    """Like :func:`apply_survey_systematics` but first applies a veto-mask-hole
+    imaging veto to the truth (galaxies inside holes are removed entirely — no
+    imaging, no targets), then injects the spectroscopic systematics on the
+    survivors. Returns ``(observed, targets, kept_mask, targets_true_z, hole_truth)``
+    where ``hole_truth`` also carries the removed galaxies' truth (ra/dec/z) so the
+    inpainting can be scored against them.
+    """
+    ra = np.asarray(ra, float); dec = np.asarray(dec, float); z = np.asarray(z, float)
+    ht = inject_mask_holes(ra, dec, hole_ladder=hole_ladder, seed=hole_seed)
+    keep = ~ht.in_hole
+    colors_k = None if colors is None else np.asarray(colors)[keep]
+    mags_k = None if mags is None else np.asarray(mags)[keep]
+    observed, targets, kept_mask, true_z = apply_survey_systematics(
+        ra[keep], dec[keep], z[keep], colors_k, mags_k, np.asarray(w_systot, float)[keep], **kw)
+    ht.removed_ra = ra[ht.in_hole]; ht.removed_dec = dec[ht.in_hole]; ht.removed_z = z[ht.in_hole]
+    return observed, targets, kept_mask, true_z, ht
