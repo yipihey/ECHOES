@@ -695,12 +695,17 @@ def complete_catalog_photoz(
             if getattr(catalog, "w_sys_data", None) is not None and catalog.w_cp_data is not None:
                 wc = float(np.mean(np.asarray(catalog.w_sys_data) *
                                    (np.asarray(catalog.w_cp_data) + np.asarray(catalog.w_noz_data) - 1.0)))
+            fctx = field_ctx
+            if inpaint_mode == "cr" and fctx is None:
+                from .fieldpost import build_field_context
+                fctx = build_field_context(catalog, sel_map=getattr(catalog, "sel_map", None),
+                                           nside=getattr(catalog, "nside", None))
             ip = sample_inpaint_catalog(
                 fp, donor_ra=ra_o, donor_dec=dec_o, donor_z=z_o,
                 rand_ra=np.asarray(catalog.ra_random), rand_dec=np.asarray(catalog.dec_random),
                 donor_colors=getattr(catalog, "colors_data", None),
                 donor_mags=getattr(catalog, "mags_data", None),
-                mode=inpaint_mode, seed=seed + 7919, density_boost=wc)
+                mode=inpaint_mode, seed=seed + 7919, density_boost=wc, field_ctx=fctx)
             n_inpaint = len(ip["ra"])
             out_ra = np.concatenate([out_ra, ip["ra"]])
             out_dec = np.concatenate([out_dec, ip["dec"]])

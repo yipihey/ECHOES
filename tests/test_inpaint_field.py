@@ -1,5 +1,6 @@
 """M1: generative inpaint sampler fills interior holes with PROV=5 galaxies."""
 import numpy as np
+import pytest
 
 from echoes.fill_footprint import build_fill_footprint
 from echoes.inpaint_field import sample_inpaint_catalog, PROV_INPAINT
@@ -48,6 +49,16 @@ def test_no_holes_returns_empty():
     out = sample_inpaint_catalog(fp, donor_ra=ra_r[:30_000], donor_dec=dec_r[:30_000],
                                  donor_z=z, rand_ra=ra_r, rand_dec=dec_r, mode="analog")
     assert len(out["ra"]) == 0 and out["prov"].dtype == np.int8
+
+
+def test_cr_mode_requires_field_ctx():
+    ra_r, dec_r = _patch(seed=5)
+    z = np.random.default_rng(6).uniform(0.45, 0.70, 30_000)
+    fp = build_fill_footprint(ra_random=ra_r, dec_random=dec_r, z_data=z,
+                              nside=64, mangle_ply=None, mangle_npy=None, lss_clip_deg=3.0)
+    with pytest.raises(ValueError, match="field_ctx"):
+        sample_inpaint_catalog(fp, donor_ra=ra_r[:1000], donor_dec=dec_r[:1000], donor_z=z[:1000],
+                               rand_ra=ra_r, rand_dec=dec_r, mode="cr")
 
 
 def test_fill_regime_flags_prior_inpaint():

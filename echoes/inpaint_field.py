@@ -40,7 +40,8 @@ def _empty():
 def sample_inpaint_catalog(footprint, *, donor_ra, donor_dec, donor_z,
                            rand_ra, rand_dec, donor_colors=None, donor_mags=None,
                            mode="thin", seed=0, density_boost=1.0, uncert_scale_deg=1.0,
-                           thin_oversample=8, thin_aperture_deg=0.7):
+                           thin_oversample=8, thin_aperture_deg=0.7,
+                           field_ctx=None, cr_nz=40):
     """Generate inpaint galaxies in the fill region of ``footprint``.
 
     Returns ``dict(ra, dec, z, prov, uncert)`` of NEW galaxies (``prov``=5). ``mode``:
@@ -91,8 +92,56 @@ def sample_inpaint_catalog(footprint, *, donor_ra, donor_dec, donor_z,
         p_acc = np.clip(fw * opd * density_boost / float(thin_oversample), 0.0, 1.0)
         acc = rng.random(len(pr)) < p_acc
         ra = pr[acc].astype(np.float32); dec = pd[acc].astype(np.float32); z = pz[acc].astype(np.float32)
+    elif mode == "cr":
+        # Constrained-realization (LGCP Poisson) fill: per fill pixel draw the STOCHASTIC
+        # conditional field 1+δ(z) (Matheron, echoes.fieldpost), set the expected count to
+        # the parent density (amplitude calibrated), and draw z from the FIELD-MODULATED
+        # n(z) — so the fill has 3-D structure and the per-LOS radial profile, not just the
+        # global n(z). Deep in a void the draw reverts to a fair prior realization (correct
+        # clustering, uninformed phase) -> flagged by uncert.
+        if field_ctx is None:
+            raise ValueError("inpaint mode 'cr' requires field_ctx (echoes.fieldpost.build_field_context)")
+        import healpy as hp
+        from .fieldpost import los_overdensity
+        rng = np.random.default_rng(seed)
+        fill_pix = np.flatnonzero(footprint.fill_weight > 0)
+        if len(fill_pix) == 0:
+            return _empty()
+        theta, phi = hp.pix2ang(footprint.nside, fill_pix)
+        pix_ra = np.degrees(phi); pix_dec = 90.0 - np.degrees(theta)
+        zgrid = np.linspace(float(np.min(donor_z)), float(np.max(donor_z)), int(cr_nz))
+        nbar_z = np.clip(footprint.nbar_z(zgrid), 0.0, None)
+        opd = np.clip(los_overdensity(field_ctx, pix_ra, pix_dec, zgrid, n_samples=1, seed=seed)[:, 0, :], 0.0, None)
+        pz_pix = nbar_z[None, :] * opd                          # (Npix, nz) unnormalised p(z)
+        opd_ang = pz_pix.sum(1) / max(nbar_z.sum(), 1e-12)      # n(z)-weighted mean (1+δ) per pix
+        n_cov = max(int((footprint.observed_cover > 0).sum()), 1)
+        nbar_ang = len(np.atleast_1d(donor_ra)) / n_cov         # parent galaxies per covered pixel
+        fw = footprint.fill_weight[fill_pix]
+        # amplitude calibration: the field gives the RELATIVE structure (opd_ang); the
+        # parent density sets the TOTAL. Normalise so E[total] = nbar_ang·Σfw·density_boost
+        # (count recovery -> 1), avoiding the clipped-Gaussian-mean over-fill of the
+        # linearised field. The Poisson + field still imprint per-pixel structure.
+        lam_raw = fw * opd_ang
+        target_total = nbar_ang * fw.sum() * density_boost
+        lam = lam_raw * (target_total / max(lam_raw.sum(), 1e-12))
+        counts = rng.poisson(np.clip(lam, 0.0, None))
+        res = hp.nside2resol(footprint.nside)
+        ras, decs, zs = [], [], []
+        for k in np.flatnonzero(counts):
+            n = int(counts[k])
+            dth = (rng.random(n) - 0.5) * res
+            dph = (rng.random(n) - 0.5) * res / max(np.sin(theta[k]), 1e-3)
+            decs.append(pix_dec[k] - np.degrees(dth))
+            ras.append((pix_ra[k] + np.degrees(dph)) % 360.0)
+            p = pz_pix[k]; s = p.sum()
+            zs.append(rng.choice(zgrid, size=n, p=p / s) if s > 0 else rng.choice(zgrid, size=n))
+        if not ras:
+            return _empty()
+        ra = np.concatenate(ras).astype(np.float32)
+        dec = np.concatenate(decs).astype(np.float32)
+        z = np.concatenate(zs).astype(np.float32)
     else:
-        raise ValueError(f"inpaint mode {mode!r} not recognised ('thin' or 'analog')")
+        raise ValueError(f"inpaint mode {mode!r} not recognised ('cr', 'thin', or 'analog')")
     if len(ra) == 0:
         return _empty()
     unc = _uncert(ra, dec, donor_ra, donor_dec, uncert_scale_deg)

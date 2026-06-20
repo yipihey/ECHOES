@@ -59,33 +59,38 @@ def main():
     surv = ~g_in
     fp = build_fill_footprint(ra_random=rra[~rand_in], dec_random=rdec[~rand_in], z_data=z[surv],
                               nside=512, lss_clip_deg=2.0, mangle_npy=None)
-    ip = sample_inpaint_catalog(fp, donor_ra=ra[surv], donor_dec=dec[surv], donor_z=z[surv],
-                                rand_ra=rra[~rand_in], rand_dec=rdec[~rand_in], mode="thin", seed=0)
-    print(f"inpainted {len(ip['ra']):,} galaxies; mean uncert {ip['uncert'].mean():.2f}")
 
-    # which inpaint / removed-truth galaxies fall in each hole class
-    ip_in, ip_hid = _in_holes(ip["ra"], ip["dec"], ht.center_ra, ht.center_dec, ht.radius_deg)
-    hole_class = ht.hole_class
-    print(f"\n{'hole class':10s} {'radius':>7s} {'N_truth':>9s} {'N_inpaint':>10s} "
-          f"{'recovery':>9s} {'n(z) KS p':>10s}")
-    for cls in LADDER:
-        cmask = hole_class == cls
-        hids = np.flatnonzero(cmask)
-        n_truth = int((g_in & np.isin(ht.hole_id, hids)).sum())
-        sel_ip = np.isin(ip_hid, hids) & ip_in
-        n_ip = int(sel_ip.sum())
-        z_truth = z[g_in & np.isin(ht.hole_id, hids)]
-        z_ip = ip["z"][sel_ip]
-        ksp = stats.ks_2samp(z_truth, z_ip).pvalue if (len(z_truth) > 5 and len(z_ip) > 5) else np.nan
-        print(f"{cls:10s} {LADDER[cls][0]:6.2f}° {n_truth:9d} {n_ip:10d} "
-              f"{n_ip/max(n_truth,1):9.2f} {ksp:10.2f}")
+    # field context for the constrained-realization mode (from the survivors)
+    from types import SimpleNamespace
+    from echoes.fieldpost import build_field_context
+    sc = SimpleNamespace(ra_data=ra[surv], dec_data=dec[surv], z_data=z[surv],
+                         sel_map=fp.observed_cover, nside=fp.nside)
+    print("building field context (for CR) ...")
+    fctx = build_field_context(sc, sel_map=fp.observed_cover, nside=fp.nside, n_rand_factor=2)
 
-    # overall n(z) recovery
-    ksp_all = stats.ks_2samp(z[g_in], ip["z"][ip_in]).pvalue
-    rec_all = ip_in.sum() / max(g_in.sum(), 1)
-    print(f"\noverall: count recovery {rec_all:.2f}, n(z) KS p={ksp_all:.2f}")
-    print("(recovery -> 1 and n(z) KS p>0.05 = parent statistics preserved; recovery falling "
-          "below 1 as holes grow marks the data->prior-dominated boundary.)")
+    def recover(mode, **kw):
+        ip = sample_inpaint_catalog(fp, donor_ra=ra[surv], donor_dec=dec[surv], donor_z=z[surv],
+                                    rand_ra=rra[~rand_in], rand_dec=rdec[~rand_in],
+                                    mode=mode, seed=0, **kw)
+        ip_in, ip_hid = _in_holes(ip["ra"], ip["dec"], ht.center_ra, ht.center_dec, ht.radius_deg)
+        print(f"\n=== mode={mode!r}: {len(ip['ra']):,} inpainted, mean uncert {ip['uncert'].mean():.2f} ===")
+        print(f"{'hole class':10s} {'radius':>7s} {'N_truth':>9s} {'N_inpaint':>10s} "
+              f"{'recovery':>9s} {'n(z) KS p':>10s}")
+        for cls in LADDER:
+            hids = np.flatnonzero(ht.hole_class == cls)
+            n_truth = int((g_in & np.isin(ht.hole_id, hids)).sum())
+            sel_ip = np.isin(ip_hid, hids) & ip_in
+            z_truth = z[g_in & np.isin(ht.hole_id, hids)]; z_ip = ip["z"][sel_ip]
+            ksp = stats.ks_2samp(z_truth, z_ip).pvalue if (len(z_truth) > 5 and sel_ip.sum() > 5) else np.nan
+            print(f"{cls:10s} {LADDER[cls][0]:6.2f}° {n_truth:9d} {int(sel_ip.sum()):10d} "
+                  f"{sel_ip.sum()/max(n_truth,1):9.2f} {ksp:10.2f}")
+        ksp_all = stats.ks_2samp(z[g_in], ip["z"][ip_in]).pvalue
+        print(f"overall: count recovery {ip_in.sum()/max(g_in.sum(),1):.2f}, n(z) KS p={ksp_all:.2f}")
+
+    recover("thin")
+    recover("cr", field_ctx=fctx)
+    print("\n(CR should bring count recovery -> 1 (amplitude calibrated) and lift the per-hole "
+          "n(z) KS p (field-modulated radial structure) vs thin.)")
 
 
 if __name__ == "__main__":
