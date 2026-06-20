@@ -45,6 +45,8 @@ class FillFootprint:
     empty_pix: np.ndarray          # int[]: remaining fill pixels (Regime P)
     z_grid: np.ndarray             # n(z) bin centres
     nz: np.ndarray                 # n(z) values (galaxies per bin, normalised to mean 1)
+    counts: np.ndarray = None      # (npix,) raw random counts (for the analog filler)
+    holes: list = None             # List[inpaint.Hole]: interior holes (Regime D)
 
     @property
     def fill_area_deg2(self) -> float:
@@ -190,4 +192,4 @@ def build_fill_footprint(catalog=None, *, ra_random=None, dec_random=None, z_dat
 
     return FillFootprint(nside=nside, target_mask=target_mask, observed_cover=observed_cover,
                          fill_weight=fill_weight, hole_pix=hole_pix, empty_pix=empty_pix,
-                         z_grid=z_grid, nz=nz)
+                         z_grid=z_grid, nz=nz, counts=counts, holes=holes)

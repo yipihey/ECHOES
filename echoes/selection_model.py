@@ -170,6 +170,18 @@ class SelectionModel:
         return np.asarray(intensity, float) * (1.0 - self.p_observed(w_systot, n_close, imag, delta_local))
 
 
+def inpaint_intensity(fill_weight, nbar_z, opd, z):
+    """Inpainting intensity λ(n̂,z) = ``fill_weight(n̂) · n̄(z) · (1+δ(n̂,z))`` — the
+    angular×radial rate of galaxies to GENERATE in the un-observed footprint
+    (veto holes + empty regions). ``fill_weight`` is the per-position WHERE-to-fill
+    fraction (``echoes.fill_footprint``; the angular marginal of ``missing_intensity``
+    with ``p_img→0`` in holes), ``nbar_z`` the mean n(z), and ``opd`` the conditional
+    field draw ``1+δ`` from an engine. A global amplitude ``α_n`` is applied by the
+    sampler so the expected count matches the selection-immune target density."""
+    return (np.asarray(fill_weight, float) * np.asarray(nbar_z, float)
+            * np.clip(np.asarray(opd, float), 0.0, None))
+
+
 def local_close_pair_count(ra_deg, dec_deg, collision_scale_deg):
     """Number of neighbours within the collision scale for each galaxy — the
     ``n_close`` that drives :meth:`SelectionModel.p_collision`. Self excluded."""

@@ -428,6 +428,10 @@ def complete_catalog_photoz(
     gp_kwargs=None,
     field_ctx=None,
     fieldpost_kwargs=None,
+    inpaint: bool = False,
+    inpaint_mode: str = "analog",
+    fill_footprint=None,
+    inpaint_kwargs=None,
     verbose: bool = False,
 ):
     """Equal-weight completion using REAL imaging positions + photo-z redshifts.
@@ -641,13 +645,49 @@ def complete_catalog_photoz(
         out_dec = np.concatenate([base_dec[keep], ex_dec])
         out_z = np.concatenate([base_z[keep], ex_z])
         out_prov = np.concatenate([base_prov[keep], np.full(len(ex_ra), PROV["systot"])])
+
+    # ---- generative inpainting of the un-observed footprint (veto holes) ----
+    # GENERATES new galaxies where there is no imaging (PROV['inpaint']=5), so the
+    # catalog is uniform/complete. Default off (opt-in until the release default-switch);
+    # needs survey randoms (real catalog) or a precomputed fill_footprint.
+    out_uncert = np.zeros(len(out_ra), np.float32)
+    n_inpaint = 0
+    if inpaint and inpaint_mode != "none":
+        from .inpaint_field import sample_inpaint_catalog
+        fp = fill_footprint
+        ra_rand = np.asarray(getattr(catalog, "ra_random", np.zeros(0)))
+        if fp is None and len(ra_rand) > 0:
+            from .fill_footprint import build_fill_footprint
+            fp = build_fill_footprint(catalog, **(inpaint_kwargs or {}))
+        if fp is None:
+            if verbose:
+                print("[inpaint] no fill_footprint and no survey randoms -> skipping inpaint")
+        else:
+            wc = 1.0
+            if getattr(catalog, "w_sys_data", None) is not None and catalog.w_cp_data is not None:
+                wc = float(np.mean(np.asarray(catalog.w_sys_data) *
+                                   (np.asarray(catalog.w_cp_data) + np.asarray(catalog.w_noz_data) - 1.0)))
+            ip = sample_inpaint_catalog(
+                fp, donor_ra=ra_o, donor_dec=dec_o, donor_z=z_o,
+                rand_ra=np.asarray(catalog.ra_random), rand_dec=np.asarray(catalog.dec_random),
+                donor_colors=getattr(catalog, "colors_data", None),
+                donor_mags=getattr(catalog, "mags_data", None),
+                mode=inpaint_mode, seed=seed + 7919, density_boost=wc)
+            n_inpaint = len(ip["ra"])
+            out_ra = np.concatenate([out_ra, ip["ra"]])
+            out_dec = np.concatenate([out_dec, ip["dec"]])
+            out_z = np.concatenate([out_z, ip["z"]])
+            out_prov = np.concatenate([out_prov, ip["prov"]])
+            out_uncert = np.concatenate([out_uncert, ip["uncert"]])
+
     if verbose:
         print(f"[complete-photoz] N_obs={len(ra_o):,} + {targets.N:,} missing "
               f"-> N_eq={len(out_ra):,} (+{100*(len(out_ra)/len(ra_o)-1):.1f}%), "
-              f"mode={systot_mode}, zhost-fallback={int(zhost_fallback.sum())}")
+              f"mode={systot_mode}, zhost-fallback={int(zhost_fallback.sum())}"
+              f"{f', +{n_inpaint:,} inpaint' if n_inpaint else ''}")
     return {"ra": out_ra.astype(np.float32), "dec": out_dec.astype(np.float32),
             "z": out_z.astype(np.float32), "N": len(out_ra),
-            "prov": out_prov.astype(np.int8)}
+            "prov": out_prov.astype(np.int8), "uncert": out_uncert.astype(np.float32)}
 
 
 @perf.timed("generate_catalogs_from_kernel")
