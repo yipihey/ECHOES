@@ -523,9 +523,36 @@ def _data_tab(pimg):
              "~0.75 in the under-tiled north). Right: the FKP-weighted random density; FKP is a "
              "radial n(z) weight, so its angular structure just tracks the mask.</figcaption></figure>")
 
+    H.append("<h3 id='data-inpaint'>Generative inpainting of the holes — and why small holes stay masked</h3>")
+    H.append("<p>Can we fill the veto holes with generated galaxies so the catalog is uniform "
+             "everywhere? ECHOES implements this (provenance code 5): new galaxies drawn from the "
+             "conditional density field — an analog-transplant mode and a constrained-realization "
+             "(Matheron) mode using the same field engine as the redshift assignment — each with a "
+             "per-galaxy prior-dominance flag. The image below shows the large empty regions filled "
+             "(cyan) on real CMASS-South.</p>")
+    H.append(pimg("output/inpaint_comparison.png") +
+             "<figcaption><b>Generative inpaint on real CMASS-South.</b> Right: the inpaint galaxies "
+             "(cyan) fill the large empty regions; small veto holes are left masked (see below). The "
+             "completed catalog reaches 96% of the body density in the fill region (uniform, no hole "
+             "imprint).</figcaption></figure>")
+    H.append("<div class='callout'><b>Key result — inpainting helps only LARGE holes.</b> A 2-point "
+             "inject-and-recover test (w(θ), w<sub>p</sub>(r<sub>p</sub>) vs the parent) shows the "
+             "benefit depends on hole size, because masked randoms cancel a hole <i>exactly</i> while "
+             "any inpaint adds finite-precision galaxies:<br>"
+             "&nbsp;&nbsp;• <b>large</b> regions (1.5°, 4% removed): w<sub>p</sub> RMS 0.096 (masked) → "
+             "<b>0.038</b> (inpaint) — <b>helps</b>;<br>"
+             "&nbsp;&nbsp;• <b>small</b> holes (~0.3°, ~1.5% removed): w<sub>p</sub> RMS 0.009 (masked) → "
+             "0.023 (inpaint) — <b>hurts</b>.<br>"
+             "So the released product applies a <b>size gate</b>: it inpaints only the large empty "
+             "regions (~1.6% of the footprint, flagged prior-dominated) and leaves the small bright-star "
+             "/ bad-field holes explicit in the random catalog — the optimal, exact choice. The "
+             "constrained-realization engine recovers the parent n(z) in data-constrained holes "
+             "(KS p&gt;0.05); prior-dominated void fills revert to the global n(z) and are flagged.</div>")
     H.append("<div class='callout'>Reproduce: <code>python validation/dust_correlation.py</code> "
-             "(needs <code>dustmaps</code> + the SFD map) and "
-             "<code>python validation/randoms_weight_map.py</code>.</div>")
+             "(needs <code>dustmaps</code> + the SFD map), "
+             "<code>python validation/randoms_weight_map.py</code>, and the inpaint analyses "
+             "<code>validation/inpaint_comparison.py</code> / <code>inpaint_recovery.py</code> / "
+             "<code>inpaint_clustering.py</code>.</div>")
     H.append("</div>")  # end tab-data
     return "".join(H)
 

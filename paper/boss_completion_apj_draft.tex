@@ -198,8 +198,11 @@ imaging-systematic weights by equal-weight galaxies.
 
 The ECHOES product corrects three effects in the default release: fiber collisions,
 redshift failures, and the smooth imaging-systematic modulation represented by
-\texttt{WEIGHT\_SYSTOT}.  An optional inpainted version also fills interior mask
-holes, but the default scientific product leaves the survey mask explicit.  The
+\texttt{WEIGHT\_SYSTOT}.  A generative inpainting mode can additionally fill the
+large empty regions of the footprint with new galaxies drawn from the conditional
+density field; the default product leaves the small veto-mask holes explicit, a
+choice we justify quantitatively in Section~\ref{sec:systematics} (masked randoms
+cancel a small hole exactly, so inpainting it can only add clustering error).  The
 FKP weight \citep{FKP1994} is not a completeness correction and is not converted
 into galaxies.  Analysts may still apply FKP or other inverse-variance weights
 when estimating a statistic; the released point catalog itself is equal weight.
@@ -391,10 +394,11 @@ systematic.}
 
 Each output object carries a provenance code: 0 for observed spectroscopy,
 1 for restored fiber-collision target, 2 for restored redshift failure, 3 for
-imaging-systematic analog, 4 for rare host-redshift fallback, and 5 for optional
-mask inpainting.  The provenance vector is central to reproducibility because
-analysts can rerun a statistic on individual components or test sensitivity to
-the imaging analog prescription.
+imaging-systematic analog, 4 for rare host-redshift fallback, and 5 for
+large-region inpainting (prior-dominated, carrying a per-galaxy uncertainty flag).
+The provenance vector is central to reproducibility because analysts can rerun a
+statistic on individual components, drop the prior-dominated inpaint galaxies, or
+test sensitivity to the imaging analog prescription.
 
 \subsection{Compact posterior and sampling}
 \label{subsec:compact}
@@ -922,13 +926,29 @@ density map correlates with the total-target density at 0.98, and the
 trustworthiness map has a median scatter of 0.13.  These diagnostics identify
 where the completion is extrapolating most strongly.
 
-The optional mask-inpainting product fills 542 interior holes totaling
-16.6 deg$^2$, about 0.9\% of the footprint.  The inpainting closure test is
-approximately 1\% over $0.06^\circ$--$2^\circ$.  We keep this step optional
-because different analyses may prefer to leave bright-star holes and small mask
-features explicit in the random catalog.  The default product therefore
-corrects spectroscopic incompleteness and smooth imaging weights while leaving
-the official footprint visible.
+We implement generative inpainting that fills the un-observed footprint with new
+galaxies drawn from the conditional density field --- an analog-transplant mode and
+a constrained-realization mode that draws a stochastic Matheron field realization
+along each line of sight using the same field engine as the redshift assignment ---
+tagged with provenance code~5 and a per-galaxy prior-dominance flag.  An
+inject-and-recover two-point test, however, shows that the benefit depends strongly
+on hole size.  Masked randoms cancel a hole \emph{exactly} in the Landy--Szalay
+estimator, whereas any inpainting replaces that exact cancellation with
+finite-precision galaxies; inpainting therefore nets positive only where the masking
+residual exceeds the inpainting error.  For large empty regions (degree-scale field
+vetoes) the constrained-realization fill reduces the projected-clustering bias
+substantially in a stress test (from $\sim$10\% to $\sim$4\% in $w_p(r_p)$ RMS), with
+the residual set by the un-fillable hole rim and by prior dominance in the void
+interiors.  For the small bright-star and bad-field holes inpainting is
+counterproductive: the masking residual is already $\sim$1\% and the fill raises it
+($w_p$ RMS $0.9\%\to2.3\%$).  The released product therefore applies a size gate ---
+it inpaints only the large empty regions (about 1.6\% of the footprint), flagged as
+prior-dominated, and leaves the small veto holes explicit in the random catalog.
+This makes the equal-weight catalog uniform across its large gaps while preserving the
+exact masked-random cancellation where that is optimal.  The completed density inside
+data-constrained interior holes recovers the parent redshift distribution
+(Kolmogorov--Smirnov $p>0.05$), while prior-dominated void fills revert to the global
+$n(z)$ and are flagged accordingly.
 
 \begin{figure*}
 \centering

@@ -93,6 +93,27 @@ def _close(mask_bool, nside, n_iter):
     return e
 
 
+def _connected_components(pix_bool, nside):
+    """Connected components of a boolean HEALPix mask (8-neighbour BFS)."""
+    import healpy as hp
+    pix = np.flatnonzero(pix_bool)
+    pset = set(int(p) for p in pix)
+    seen = set(); comps = []
+    for p0 in pix:
+        p0 = int(p0)
+        if p0 in seen:
+            continue
+        comp = [p0]; seen.add(p0); stack = [p0]
+        while stack:
+            q = stack.pop()
+            for nn in hp.get_all_neighbours(nside, q):
+                nn = int(nn)
+                if nn >= 0 and nn in pset and nn not in seen:
+                    seen.add(nn); comp.append(nn); stack.append(nn)
+        comps.append(np.array(comp))
+    return comps
+
+
 def _geometry_mask(nside, *, mangle_npy=None, mangle_ply=None):
     """Boolean HEALPix occupancy of the BOSS mangle GEOMETRY footprint, or None if
     no mangle source is available. Prefers the cached uniform-geometry randoms."""
@@ -139,7 +160,7 @@ def _proximity_clip(geom_bool, ra_random, dec_random, nside, lss_clip_deg):
 def build_fill_footprint(catalog=None, *, ra_random=None, dec_random=None, z_data=None,
                          nside=512, mangle_ply="data/boss/mask_DR12v5_CMASS_South.ply",
                          mangle_npy=DEFAULT_MANGLE_NPY, lss_clip_deg=1.0,
-                         empty_thresh=0.2, n_z=64) -> FillFootprint:
+                         empty_thresh=0.2, min_fill_deg2=2.0, n_z=64) -> FillFootprint:
     """Build the :class:`FillFootprint` for a survey.
 
     Accepts either a loaded ``catalog`` (uses ``ra_random``/``dec_random``/``z_data``)
@@ -180,6 +201,18 @@ def build_fill_footprint(catalog=None, *, ra_random=None, dec_random=None, z_dat
     # ``nside`` (thinner erosion) without the double-count. ``empty_thresh`` = the
     # completeness below which a pixel is a hole.
     fill_weight = (target_mask & (observed_cover <= empty_thresh * 1e-3)).astype(float)
+    # SIZE GATE: only inpaint LARGE empty regions (>= min_fill_deg2). The 2-point clustering
+    # gate showed inpaint nets POSITIVE only for large regions (where masking leaves a big
+    # residual) and is counterproductive for small veto holes — masked randoms cancel a small
+    # hole exactly, so any inpaint can only add error. So small holes are left masked (the
+    # default scientific choice), and only large empty regions are filled + flagged.
+    if min_fill_deg2 and min_fill_deg2 > 0:
+        pixarea = hp.nside2pixarea(nside, degrees=True)
+        keep = np.zeros(npix, bool)
+        for comp in _connected_components(fill_weight > 0, nside):
+            if len(comp) * pixarea >= min_fill_deg2:
+                keep[comp] = True
+        fill_weight = fill_weight * keep
     # true empty area (rim fractions included) over the hole neighbourhood — the total
     # galaxy mass the inpaint must place. Distributing this over the zero-coverage CORE
     # (fill_weight) conserves each hole's count without double-counting the rim.
