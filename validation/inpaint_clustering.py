@@ -26,7 +26,7 @@ from echoes.mock_systematics import inject_mask_holes
 DATA = "data/boss/galaxy_DR12v5_CMASS_South.fits.gz"
 RAND = "data/boss/random0_DR12v5_CMASS_South.fits.gz"
 NTH = 16
-LADDER = {"medium": (0.5, 25), "large": (1.5, 8)}
+LADDER = {"small": (0.25, 40), "medium": (0.5, 10)}   # resolvable, ~1.5% removal (realistic)
 
 
 def wtheta(ra_d, dec_d, ra_r, dec_r, tb, rr=None):
@@ -59,19 +59,23 @@ def main():
 
     ht = inject_mask_holes(ra, dec, hole_ladder=LADDER, seed=3)
     g_in = ht.in_hole
-    rand_in = _in_holes(rra, rdec, ht.center_ra, ht.center_dec, ht.radius_deg)   # punched-random copy
+    rand_in = _in_holes(rra, rdec, ht.center_ra, ht.center_dec, ht.radius_deg)   # window (subsampled)
     surv = ~g_in
     print(f"removed {g_in.sum():,} galaxies; survivors {surv.sum():,}")
 
-    fp = build_fill_footprint(ra_random=rra[~rand_in], dec_random=rdec[~rand_in], z_data=z[surv],
-                              nside=256, lss_clip_deg=2.0, mangle_npy=None)
+    # the fill footprint + thin field need the FULL randoms (dense) so the hole detection is
+    # not corrupted by Poisson false-holes; the subsampled randoms are only the clustering window
+    fra = np.asarray(cat.ra_random); fdec = np.asarray(cat.dec_random)
+    frand_in = _in_holes(fra, fdec, ht.center_ra, ht.center_dec, ht.radius_deg)
+    fp = build_fill_footprint(ra_random=fra[~frand_in], dec_random=fdec[~frand_in], z_data=z[surv],
+                              nside=256, lss_clip_deg=1.5, mangle_npy=None)
     from types import SimpleNamespace
     from echoes.fieldpost import build_field_context
     fctx = build_field_context(SimpleNamespace(ra_data=ra[surv], dec_data=dec[surv], z_data=z[surv],
                                sel_map=fp.observed_cover, nside=fp.nside),
                                sel_map=fp.observed_cover, nside=fp.nside, n_rand_factor=2)
     ip = {m: sample_inpaint_catalog(fp, donor_ra=ra[surv], donor_dec=dec[surv], donor_z=z[surv],
-                                    rand_ra=rra[~rand_in], rand_dec=rdec[~rand_in], mode=m, seed=0,
+                                    rand_ra=fra[~frand_in], rand_dec=fdec[~frand_in], mode=m, seed=0,
                                     field_ctx=(fctx if m == "cr" else None))
           for m in ("thin", "cr")}
     for m in ip:

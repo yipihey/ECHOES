@@ -117,10 +117,10 @@ def sample_inpaint_catalog(footprint, *, donor_ra, donor_dec, donor_z,
         n_cov = max(int((footprint.observed_cover > 0).sum()), 1)
         nbar_ang = len(np.atleast_1d(donor_ra)) / n_cov         # parent galaxies per covered pixel
         fw = footprint.fill_weight[fill_pix]
-        # amplitude calibration: the field gives the RELATIVE structure (opd_ang); the
-        # parent density sets the TOTAL. Normalise so E[total] = nbar_ang·Σfw·density_boost
-        # (count recovery -> 1), avoiding the clipped-Gaussian-mean over-fill of the
-        # linearised field. The Poisson + field still imprint per-pixel structure.
+        # amplitude calibration: the field gives the RELATIVE structure (opd_ang); the parent
+        # density sets the TOTAL over the zero-coverage CORE (count-calibrated). Tested
+        # alternatives (fractional-rim fill, mass-conserving core boost) both inject worse
+        # artifacts than the gentle rim under-fill, so the binary core is kept.
         lam_raw = fw * opd_ang
         target_total = nbar_ang * fw.sum() * density_boost
         lam = lam_raw * (target_total / max(lam_raw.sum(), 1e-12))

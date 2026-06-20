@@ -47,6 +47,8 @@ class FillFootprint:
     nz: np.ndarray                 # n(z) values (galaxies per bin, normalised to mean 1)
     counts: np.ndarray = None      # (npix,) raw random counts (for the analog filler)
     holes: list = None             # List[inpaint.Hole]: interior holes (Regime D)
+    empty_area: float = 0.0        # true empty area in pixels (Σ(1-cover) over hole neigh,
+                                   #   rim fractions incl) — the mass to inpaint w/o double-count
 
     @property
     def fill_area_deg2(self) -> float:
@@ -170,13 +172,19 @@ def build_fill_footprint(catalog=None, *, ra_random=None, dec_random=None, z_dat
         target_mask = target_mask & geom_near                  # trim only; never extend
     target_mask = target_mask | cover_bool                     # always keep covered pixels
 
-    # Fill only genuine zero-coverage pixels (veto holes + empty regions). Partial-
-    # completeness pixels (counts>0) are NOT filled — they already hold galaxies and are
-    # handled by the spec-missing restoration + WEIGHT_SYSTOT analogs (filling them would
-    # double-count and imprint a boundary ring). Total density stays continuous across a
-    # hole rim: real galaxies on the covered side, inpaint on the hole side, both at full
-    # density. ``empty_thresh`` keeps a small completeness tolerance for "covered".
+    # Fill ONLY genuine zero-coverage pixels (binary). Partial-completeness rim pixels are
+    # NOT filled: at a real hole boundary they still contain galaxies, so filling them would
+    # double-count and inject spurious clustering power (verified: a fractional-rim fill
+    # worsens w(θ)/wp). Total density stays continuous across the rim — real galaxies on the
+    # covered side, inpaint on the empty side. The residual rim under-fill shrinks with finer
+    # ``nside`` (thinner erosion) without the double-count. ``empty_thresh`` = the
+    # completeness below which a pixel is a hole.
     fill_weight = (target_mask & (observed_cover <= empty_thresh * 1e-3)).astype(float)
+    # true empty area (rim fractions included) over the hole neighbourhood — the total
+    # galaxy mass the inpaint must place. Distributing this over the zero-coverage CORE
+    # (fill_weight) conserves each hole's count without double-counting the rim.
+    fill_neigh = _dilate(fill_weight > 0, nside, 2) & target_mask
+    empty_area = float(np.clip(1.0 - observed_cover, 0.0, 1.0)[fill_neigh].sum())
 
     # split the fill region: small data-surrounded interior holes (Regime D) vs the
     # rest (Regime P — larger gaps / edges). find_interior_holes works on the counts.
@@ -194,4 +202,4 @@ def build_fill_footprint(catalog=None, *, ra_random=None, dec_random=None, z_dat
 
     return FillFootprint(nside=nside, target_mask=target_mask, observed_cover=observed_cover,
                          fill_weight=fill_weight, hole_pix=hole_pix, empty_pix=empty_pix,
-                         z_grid=z_grid, nz=nz, counts=counts, holes=holes)
+                         z_grid=z_grid, nz=nz, counts=counts, holes=holes, empty_area=empty_area)
