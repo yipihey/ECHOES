@@ -48,6 +48,59 @@ propagate the DOI into the public files.
 
 ---
 
+## 1b. The generative (non-Gaussian) field engine — optional, data-driven
+
+The shipped completion above uses the default redshift engine (`z_mode='field'`).
+An **additional, opt-in** engine (`z_mode='generative'`, `pipeline/build_release.py
+--engine generative`) reproduces the survey's **non-Gaussian cosmic-web structure**
+— the skewed 1-point density PDF, empty voids, and the small-scale clustering that
+the `kNN`-CDF / counts-in-cells statistics detect — which the default and the
+stationary GraphGP field (a maximum-entropy, two-point-only Gaussian field) cannot.
+
+**How (purely data-driven, no simulations).** A measured **monotonic transform**
+`1+δ = T(g)` is applied to the calibrated Gaussian field draw `g`. `T` is fit from
+the survey's *own* counts-in-cells PDF (shot-noise-deconvolved via factorial
+moments), so no external simulation or cosmology enters. Because `T` is monotonic
+it is rank-preserving — the calibrated posterior coverage is untouched. The engine
+builds on GraphGP/fieldpost (never replaces them) and stays in the JAX/CUDA stack.
+
+**What it achieves (validated on real CMASS-South + Patchy mocks).**
+- **+63%** reduction of the `kNN`-CDF gap to the data (shot-noise-clean; a small-
+  scale, R≈8 Mpc/h effect) — a real, large non-Gaussian gain over the Gaussian field.
+- Generated catalogs are **systematics-clean**: the imaging seeing/depth imprint
+  (cross-correlation 5σ in the raw catalog) is removed to <2σ by the
+  `WEIGHT_SYSTOT`-weighted field plus optional ISD residual decontamination
+  (`echoes.sp_maps`); the transform itself is SP-blind and does not re-leak.
+- The data-driven ISD decontamination is competitive with a Rezaie-style NN-weight
+  baseline (`validation/sp_weight_baseline.py`).
+
+**Scope and limits (read before use).**
+- A local 1-point transform reshapes the density PDF and the induced clustering; it
+  **cannot synthesize genuine filament phase coherence** (the connectivity of
+  non-linear collapse is a phase correlation, not a 1- or 2-point property). That is
+  the ceiling of this engine; a field-level forward fit (the disco-dj lightcone
+  pipeline) would be required to exceed it, at the cost of a fixed cosmology.
+- For the **per-object redshift** completion the default `field`/`fieldpost`
+  posterior is the recommended product; the generative transform's benefit is in
+  the **field/inpaint** (empty-region) generation. The shot-noise-deconvolved
+  transform preserves object-level redshift PIT; the raw transform mildly over-
+  sharpens it.
+- **Residual-systematic caveat:** the data-driven decontamination (ISD /
+  `WEIGHT_SYSTOT`) flattens only the **known, mapped** SP templates (sky, depth,
+  seeing, airmass, extinction). Any unmapped or unknown systematic that does not
+  correlate with a provided template is invisible to both the weighting and the
+  null-test battery and **survives in the product**. The gates certify cleanliness
+  against the tested templates, not the universe of systematics. The GraphGP/`field`
+  modes remain the cosmology-free default; the generative field adds a data-measured
+  non-Gaussian texture on top.
+
+Gate scripts (all under `validation/`): `transform_probe.py` (kNN-CDF / CiC),
+`sp_cross_power.py` (g×SP), `object_pit.py` and `calibration.py --engine`
+(calibration), `sp_weight_baseline.py` (ISD vs NN). The generative engine stays
+**off by default** until adopted for a release.
+
+---
+
 ## 2. Public input data (large; download from the archives)
 
 These are the published survey products the pipeline consumes. They are **not**

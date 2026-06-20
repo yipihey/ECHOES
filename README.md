@@ -59,7 +59,7 @@ weights): the completion reproduces the official weighted BOSS clustering to ~1�
 Provenance flags (`PROV`): `0` observed-specz · `1` fiber-collided · `2`
 redshift-failure · `3` imaging-systematic analog · `4` zhost-fallback.
 
-## Two redshift engines
+## Redshift / field engines
 - **KNN-field (default):** a fast local-density posterior along each sightline.
   Cosmology-free, compresses to the 2 MB released posterior. Used for the release.
 - **graphGP (optional):** a conditional anisotropic Gaussian-process posterior over
@@ -67,6 +67,13 @@ redshift-failure · `3` imaging-systematic analog · `4` zhost-fallback.
   redshift draws. Install with
   `pip install "echoes[graphgp] @ git+https://github.com/yipihey/ECHOES.git"`.
   See [`docs/method.md`](docs/method.md).
+- **generative (optional, opt-in):** a purely data-driven **non-Gaussian** field —
+  a measured monotonic transform `1+δ = T(g)` fit from the survey's own
+  counts-in-cells PDF — that reproduces the skewed density PDF, voids, and
+  small-scale clustering the Gaussian field cannot (+63% kNN-CDF gap reduction,
+  validated), while staying rank-preserving (calibration intact) and SP-clean.
+  `pipeline/build_release.py --engine generative`. Scope, gates, and the
+  residual-systematic caveat are in [`DATA.md`](DATA.md) §1b.
 
 ## Repository layout
 ```

@@ -34,8 +34,9 @@ def main():
     ap.add_argument("--engine", choices=["field", "generative"], default="field",
                     help="'field' (default, KNN-KDE local density) or 'generative' "
                          "(Tier-A data-driven non-Gaussian field; behind the gates)")
-    ap.add_argument("--transform", default="empirical",
-                    help="generative transform: empirical|lognormal|identity")
+    ap.add_argument("--transform", default="lognormal",
+                    help="generative transform: lognormal (shot-noise-deconvolved, the "
+                         "calibration-friendly default) | empirical (max raw kNN, over-skews) | identity")
     ap.add_argument("--cic-R", type=float, default=8.0, help="CiC scale [Mpc/h] for T")
     args = ap.parse_args()
 

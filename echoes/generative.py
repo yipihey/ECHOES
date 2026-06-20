@@ -65,13 +65,14 @@ class GenerativeModel:
         return lambda opd: dt.apply_to_field(np.asarray(opd, float), mu=1.0, sigma=sigma)
 
 
-def _cic_overdensity(catalog, *, R=8.0, n_cells=8000, seed=3, randoms=None):
+def _cic_overdensity(catalog, *, R=8.0, n_cells=8000, seed=3, randoms=None, return_counts=False):
     """Measure the data's counts-in-cells overdensity ``1+δ = N/⟨N⟩`` in R-spheres
     centred on footprint-uniform points — the transform target PDF.
 
     Cell centres come from (in order): an explicit ``randoms=(ra,dec,z)`` tuple →
     ``catalog.ra_random`` → the data galaxies themselves (last-resort fallback when
-    no footprint tracer is available; mildly over-samples dense regions)."""
+    no footprint tracer is available; mildly over-samples dense regions).
+    ``return_counts`` also returns the raw cell counts (for shot-noise deconvolution)."""
     from scipy.spatial import cKDTree
     from .clustering import comoving_mpc_h
 
@@ -92,13 +93,14 @@ def _cic_overdensity(catalog, *, R=8.0, n_cells=8000, seed=3, randoms=None):
     sel = rng.choice(len(cra), min(n_cells, len(cra)), replace=False)
     c = xyz(cra[sel], cdec[sel], cz[sel])
     n = cKDTree(g).query_ball_point(c, R, return_length=True).astype(float)
-    return n / max(n.mean(), 1e-9)
+    opd = n / max(n.mean(), 1e-9)
+    return (opd, n) if return_counts else opd
 
 
 def build_generative_model(catalog, *, n_samples=1, seed=0, transform="identity",
-                           transform_obj=None, cic_R=8.0, cic_randoms=None, sp_reference=False,
-                           field_ctx=None, fieldpost_kwargs=None, sp_kwargs=None,
-                           verbose=False) -> GenerativeModel:
+                           transform_obj=None, cic_R=8.0, cic_randoms=None, deconv=True,
+                           sp_reference=False, field_ctx=None, fieldpost_kwargs=None,
+                           sp_kwargs=None, verbose=False) -> GenerativeModel:
     """Assemble a :class:`GenerativeModel`.
 
     Parameters
@@ -124,11 +126,15 @@ def build_generative_model(catalog, *, n_samples=1, seed=0, transform="identity"
     elif transform == "identity":
         dt = DensityTransform(kind="identity")
     else:
-        opd_cells = _cic_overdensity(catalog, R=cic_R, randoms=cic_randoms)
-        dt = fit_density_transform(opd_cells, kind=transform, scale=cic_R)
+        opd_cells, counts = _cic_overdensity(catalog, R=cic_R, randoms=cic_randoms, return_counts=True)
+        # shot-noise deconvolution (factorial moments) for the lognormal fit — removes
+        # the Poisson broadening of the sparse CiC PDF so the re-sampled field matches
+        # the data's true 1-pt variance (sub-1 gal/cell at R=8 is heavily broadened).
+        dt = fit_density_transform(opd_cells, kind=transform, scale=cic_R,
+                                   counts=(counts if deconv else None))
         if verbose:
-            print(f"[generative] fit T={transform} from CiC(R={cic_R}): "
-                  f"mean={dt.mean_opd:.3f} var={dt.var_opd:.3f} skew={dt.skew_opd:.3f}")
+            print(f"[generative] fit T={transform}{' (shot-noise-deconv)' if deconv else ''} "
+                  f"from CiC(R={cic_R}): var={dt.var_opd:.3f} skew={dt.skew_opd:.3f}")
     # prior std of the conditional field (linearised LGCP variance ≈ K(0))
     sigma_ref = float(np.sqrt(max(float(np.asarray(field_ctx.cov[1])[0]), 1e-6)))
     isd = sp_maps = None
