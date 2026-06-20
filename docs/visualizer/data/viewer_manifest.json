@@ -225,32 +225,45 @@
     "supported": true
   },
   "footprint": {
-    "count": 45000,
+    "attribution": "SDSS DR9 (CDS P/SDSS9/color via hips2fits)",
+    "colored": true,
+    "count": 160000,
     "dec": {
-      "bytes": 180000,
-      "count": 45000,
+      "bytes": 640000,
+      "count": 160000,
       "dtype": "<f4",
       "file": "footprint/footprint_dec.f32.bin",
-      "sha256": "54379f7c61cc68c96295436e3a87f7c8115d2e5f0943e7d583d33752fa5b89f2",
+      "sha256": "4eee8790a953b766aa1418be92c7e4f47cadbb7e1ea04c43bf7c5c4d10bb8f8f",
       "shape": [
-        45000
+        160000
       ]
     },
-    "description": "Imaging-survey angular footprint (downsampled survey randoms, RA/Dec). Rendered at a representative redshift: a flat background in sky projections, a spherical cap in 3-D.",
+    "description": "Real SDSS DR9 colour imagery sampled over the CMASS-South footprint \u2014 the actual imaging the photo-z catalog and spectroscopic targets were selected from. Flat sky image in 2-D, a spherical cap in 3-D.",
     "ra": {
-      "bytes": 180000,
-      "count": 45000,
+      "bytes": 640000,
+      "count": 160000,
       "dtype": "<f4",
       "file": "footprint/footprint_ra.f32.bin",
-      "sha256": "415aa1c8c8cf7b63f9c13f83fc7c2185b4350d29d3117fd672d2b38c2e50a298",
+      "sha256": "b883b9697c05bc1d444fea5646e12b3b01a31ea18a6d909c0dcf4418f9df3e49",
       "shape": [
-        45000
+        160000
+      ]
+    },
+    "rgb": {
+      "bytes": 480000,
+      "count": 480000,
+      "dtype": "|u1",
+      "file": "footprint/footprint_rgb.u8.bin",
+      "sha256": "084197cc038b0bab5640d28ac9bf066f2896ab5a45db0903ba4edb4f6c4dbb21",
+      "shape": [
+        160000,
+        3
       ]
     },
     "z_far": 0.5999948382377625,
     "z_near": 0.4500015676021576
   },
-  "generated_utc": "2026-06-20T00:00:21Z",
+  "generated_utc": "2026-06-20T00:22:23Z",
   "generator": "pipeline/build_viewer_bundle.py",
   "methods": [
     {

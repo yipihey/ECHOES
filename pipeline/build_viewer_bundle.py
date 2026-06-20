@@ -34,6 +34,7 @@ DEFAULT_RANDOMS = ROOT / "data_release" / "cmass_south_randoms.npz"
 DEFAULT_SOURCE = ROOT / "apps" / "echoes-viewer"
 DEFAULT_OUT = ROOT / "docs" / "visualizer"
 FOOTPRINT_MAX = 45000          # downsampled survey randoms tracing the imaging footprint
+IMAGING_MAX = 160000           # denser set when colouring points by the real SDSS image
 
 from echoes.completion import prov_registry, group_registry
 
@@ -78,30 +79,88 @@ def _write_array(data_dir: Path, rel: str, arr: np.ndarray, dtype: str) -> dict[
 
 
 def _build_footprint(data_dir: Path, randoms: Path | None, *, z_near: float, z_far: float,
-                     n_max: int = FOOTPRINT_MAX) -> dict[str, Any] | None:
-    """Footprint layer for the viewer: the imaging-survey angular coverage, traced
-    by a downsampled copy of the survey randoms (RA/Dec only). The viewer renders
-    these at a single representative redshift, so they read as a flat background in
-    sky projections and a spherical cap (shell) in 3-D / comoving views. Returns the
-    manifest ``footprint`` block, or ``None`` if no randoms file is available."""
+                     n_max: int = FOOTPRINT_MAX, imaging: bool = False) -> dict[str, Any] | None:
+    """Imaging-survey backdrop layer, traced by the survey randoms (which sample the
+    footprint, holes and all). The viewer renders these points at a representative
+    redshift: a flat background in sky projections, a spherical cap in 3-D.
+
+    With ``imaging=True`` each point is coloured by the **real SDSS DR9 colour image**
+    at its RA/Dec (fetched via CDS hips2fits), so the backdrop is the actual imaging
+    the photo-z catalog and spectroscopic targets were selected from — a denser point
+    set is used so it reads as the sky image. Without it the points are a neutral grey
+    footprint. Returns the manifest ``footprint`` block, or ``None`` if no randoms."""
     if randoms is None or not Path(randoms).exists():
         print(f"  (footprint skipped: randoms not found at {randoms})")
         return None
     with np.load(randoms, allow_pickle=False) as d:
         ra = np.asarray(d["ra"], np.float32); dec = np.asarray(d["dec"], np.float32)
+    cap = IMAGING_MAX if imaging else n_max
     rng = np.random.default_rng(0)
-    if len(ra) > n_max:
-        idx = rng.choice(len(ra), n_max, replace=False); ra, dec = ra[idx], dec[idx]
-    return {
-        "description": "Imaging-survey angular footprint (downsampled survey randoms, RA/Dec). "
-                       "Rendered at a representative redshift: a flat background in sky "
-                       "projections, a spherical cap in 3-D.",
+    if len(ra) > cap:
+        idx = rng.choice(len(ra), cap, replace=False); ra, dec = ra[idx], dec[idx]
+    block = {
+        "description": "Imaging-survey footprint traced by the survey randoms; a flat "
+                       "background in sky projections, a spherical cap in 3-D.",
         "count": int(len(ra)),
         "z_near": float(z_near),
         "z_far": float(z_far),
         "ra": _write_array(data_dir, "footprint/footprint_ra.f32.bin", ra, "<f4"),
         "dec": _write_array(data_dir, "footprint/footprint_dec.f32.bin", dec, "<f4"),
+        "colored": False,
     }
+    if imaging:
+        rgb, attribution = _sample_sdss_rgb(ra, dec, randoms)
+        if rgb is not None:
+            block["rgb"] = _write_array(data_dir, "footprint/footprint_rgb.u8.bin", rgb, "u1")
+            block["colored"] = True
+            block["attribution"] = attribution
+            block["description"] = ("Real SDSS DR9 colour imagery sampled over the CMASS-South "
+                                    "footprint — the actual imaging the photo-z catalog and "
+                                    "spectroscopic targets were selected from. Flat sky image "
+                                    "in 2-D, a spherical cap in 3-D.")
+    return block
+
+
+def _sample_sdss_rgb(ra, dec, randoms: Path, *, hips: str = "CDS/P/SDSS9/color",
+                     width: int = 3000, timeout: float = 180.0):
+    """Fetch the real SDSS colour image over the footprint (CDS hips2fits, CAR
+    projection) and sample its RGB at each ``(ra, dec)``. Returns ``(rgb_u8 (N,3),
+    attribution)`` or ``(None, None)`` if the service is unreachable."""
+    import urllib.parse, urllib.request, io
+    ra_lo, ra_hi, dec_lo, dec_hi = _footprint_bbox(randoms)
+    ra_c = 0.5 * (ra_lo + ra_hi); dec_c = 0.5 * (dec_lo + dec_hi); fov = ra_hi - ra_lo
+    H = int(round(width * (dec_hi - dec_lo) / fov))
+    cdelt = fov / width
+    ra_min, ra_max = ra_c - cdelt * width / 2, ra_c + cdelt * width / 2
+    dec_min, dec_max = dec_c - cdelt * H / 2, dec_c + cdelt * H / 2
+    params = dict(hips=hips, width=width, height=H, projection="CAR",
+                  ra=ra_c % 360.0, dec=dec_c, fov=fov, coordsys="icrs", format="jpg")
+    url = "https://alasky.u-strasbg.fr/hips-image-services/hips2fits?" + urllib.parse.urlencode(params)
+    try:
+        from PIL import Image
+        raw = urllib.request.urlopen(url, timeout=timeout).read()
+        img = np.asarray(Image.open(io.BytesIO(raw)).convert("RGB"))     # (H, W, 3)
+    except Exception as e:
+        print(f"  (imaging skipped: hips2fits fetch failed: {type(e).__name__}: {str(e)[:80]})")
+        return None, None
+    wra = np.where(np.asarray(ra, float) > 180.0, np.asarray(ra, float) - 360.0, np.asarray(ra, float))
+    # CAR: RA increases left, Dec up; image row 0 is the top (Dec max)
+    px = np.clip(((ra_max - wra) / (ra_max - ra_min) * width).astype(int), 0, width - 1)
+    py = np.clip(((dec_max - np.asarray(dec, float)) / (dec_max - dec_min) * H).astype(int), 0, H - 1)
+    rgb = img[py, px, :].astype(np.uint8)
+    print(f"  imaging: {hips} CAR {width}x{H}, sampled {len(rgb):,} footprint points "
+          f"(nonblack {float((rgb.sum(1) > 20).mean()):.2f})")
+    return rgb, f"SDSS DR9 (CDS P/SDSS9/color via hips2fits)"
+
+
+def _footprint_bbox(randoms: Path, *, q: float = 0.002):
+    """Robust wrapped-RA / Dec bounding box of the survey footprint from the randoms."""
+    with np.load(randoms, allow_pickle=False) as d:
+        ra = np.asarray(d["ra"], float); dec = np.asarray(d["dec"], float)
+    wra = np.where(ra > 180.0, ra - 360.0, ra)
+    ra_lo, ra_hi = np.quantile(wra, [q, 1 - q])
+    dec_lo, dec_hi = np.quantile(dec, [q, 1 - q])
+    return float(ra_lo), float(ra_hi), float(dec_lo), float(dec_hi)
 
 
 def _copy_static(source: Path, out: Path) -> None:
@@ -207,6 +266,7 @@ def build_viewer_bundle(
     seeds: list[int] | tuple[int, ...] = (0, 1, 2, 3),
     enriched_npz: Path | None = None,
     randoms: Path | None = DEFAULT_RANDOMS,
+    imaging: bool = False,
 ) -> Path:
     out = Path(out)
     source = Path(source)
@@ -255,8 +315,8 @@ def build_viewer_bundle(
         n_base=n_base,
     )
 
-    footprint = _build_footprint(data_dir, randoms,
-                                 z_near=float(pkg["zmin"]), z_far=float(pkg["zmax"]))
+    footprint = _build_footprint(data_dir, randoms, z_near=float(pkg["zmin"]),
+                                 z_far=float(pkg["zmax"]), imaging=imaging)
 
     realizations = []
     for seed in seeds:
@@ -377,6 +437,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="survey randoms NPZ (RA/Dec) for the imaging-footprint layer; pass a missing "
              "path to disable the footprint",
     )
+    p.add_argument(
+        "--imaging",
+        action="store_true",
+        help="fetch the real SDSS colour imagery over the footprint (CDS hips2fits) and embed "
+             "it as the textured backdrop layer (requires network)",
+    )
     return p.parse_args(argv)
 
 
@@ -389,6 +455,7 @@ def main(argv: list[str] | None = None) -> None:
         seeds=args.seeds,
         enriched_npz=args.enriched_npz,
         randoms=args.randoms,
+        imaging=args.imaging,
     )
     print(f"wrote {manifest_path}")
 

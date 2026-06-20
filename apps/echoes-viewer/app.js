@@ -198,11 +198,12 @@ async function loadFootprint() {
     return {
       ra: await fetchArray(fp.ra),
       dec: await fetchArray(fp.dec),
+      rgb: fp.colored && fp.rgb ? await fetchArray(fp.rgb) : null,  // real SDSS colour per point
       zNear: typeof fp.z_near === "number" ? fp.z_near : null,
       zFar: typeof fp.z_far === "number" ? fp.z_far : null,
     };
   } catch (err) {
-    console.warn(`imaging-footprint layer unavailable: ${err.message || err}`);
+    console.warn(`imaging-survey layer unavailable: ${err.message || err}`);
     return null;
   }
 }
@@ -931,23 +932,37 @@ function uploadPointBuffers(catalog) {
   state.buffers = { pointBuffer, colorBuffer, bindGroup, count: Math.max(1, catalog.count) };
 }
 
-const FOOTPRINT_COLOR = [0.45, 0.51, 0.60, 0.16];   // faint cool grey
+const FOOTPRINT_COLOR = [0.45, 0.51, 0.60, 0.16];   // faint cool grey (no imaging)
 const FOOTPRINT_POINT_SIZE = 1.7;
+const IMAGING_POINT_SIZE = 1.25;                    // denser, real-SDSS-coloured points
+const IMAGING_ALPHA = 0.6;
+const IMAGING_GAIN = 1.8;                           // lift the (dark) SDSS sky a touch
 
 function buildFootprintScene() {
   const fp = state.footprint;
   if (!fp || !state.settings.showFootprint || !fp.ra || !fp.ra.length) return null;
-  // render the angular footprint at a single representative redshift: z is ignored
-  // by the sky projections (flat background) and becomes the shell radius in 3-D
-  // / comoving (a spherical cap). Use the survey's far edge as the outer cap.
+  // render the footprint points at a single representative redshift: z is ignored by
+  // the sky projections (flat background) and becomes the shell radius in 3-D /
+  // comoving (a spherical cap). Use the survey's far edge as the outer cap. When the
+  // bundle carries the real SDSS image (fp.rgb), colour each point by it; else grey.
   const z = fp.zFar != null ? fp.zFar : 0.55;
   const n = fp.ra.length;
+  const rgb = fp.rgb;
+  const size = rgb ? IMAGING_POINT_SIZE : FOOTPRINT_POINT_SIZE;
   const positions = new Float32Array(n * 4);
   const colors = new Float32Array(n * 4);
   for (let i = 0; i < n; i++) {
     const pos = computeProjectedPosition(fp.ra[i], fp.dec[i], z);
-    positions.set([pos[0], pos[1], pos[2], FOOTPRINT_POINT_SIZE], i * 4);
-    colors.set(FOOTPRINT_COLOR, i * 4);
+    positions.set([pos[0], pos[1], pos[2], size], i * 4);
+    if (rgb) {
+      const k = i * 3;
+      colors[i * 4] = Math.min(1, rgb[k] / 255 * IMAGING_GAIN);
+      colors[i * 4 + 1] = Math.min(1, rgb[k + 1] / 255 * IMAGING_GAIN);
+      colors[i * 4 + 2] = Math.min(1, rgb[k + 2] / 255 * IMAGING_GAIN);
+      colors[i * 4 + 3] = IMAGING_ALPHA;
+    } else {
+      colors.set(FOOTPRINT_COLOR, i * 4);
+    }
   }
   return { positions, colors, count: n };
 }

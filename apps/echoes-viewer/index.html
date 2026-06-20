@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ECHOES Visualizer — BOSS DR12 CMASS-South</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="styles.css?v=footprint-20260619">
+  <link rel="stylesheet" href="styles.css?v=imaging-20260619">
 </head>
 <body>
   <main id="app" class="app-shell">
@@ -107,7 +107,7 @@
         <summary>Grid and labels</summary>
         <label><input id="showGrid" type="checkbox" checked> Show grid</label>
         <label><input id="showLabels" type="checkbox" checked> Show labels</label>
-        <label title="Imaging-survey footprint: flat background in sky views, spherical cap in 3-D"><input id="showFootprint" type="checkbox"> Imaging survey</label>
+        <label title="Real SDSS imaging the targets were selected from: a sky image in 2-D, a spherical cap in 3-D"><input id="showFootprint" type="checkbox"> Imaging survey (SDSS)</label>
         <label>Grid opacity
           <input id="gridOpacity" type="range" min="0" max="1" step="0.05" value="0.35">
         </label>
@@ -125,6 +125,6 @@
 
     <footer id="legend" class="legend"></footer>
   </main>
-  <script type="module" src="app.js?v=footprint-20260619"></script>
+  <script type="module" src="app.js?v=imaging-20260619"></script>
 </body>
 </html>

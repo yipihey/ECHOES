@@ -50,11 +50,13 @@ def test_viewer_bundle_manifest_and_seed0(tmp_path):
     assert (out / "app.js").exists()
     assert (out / "styles.css").exists()
 
-    # imaging-survey footprint layer (present iff the randoms file exists)
+    # imaging-survey footprint layer (present iff the randoms file exists). Default
+    # build does NOT fetch imagery (offline), so points are uncoloured grey.
     fp = manifest.get("footprint")
     if DEFAULT_RANDOMS.exists():
         assert fp is not None and fp["count"] > 0
         assert fp["z_near"] < fp["z_far"]
+        assert fp["colored"] is False and "rgb" not in fp     # no network fetch by default
         for desc in (fp["ra"], fp["dec"]):
             path = manifest_path.parent / desc["file"]
             assert path.exists() and path.stat().st_size == desc["bytes"]
