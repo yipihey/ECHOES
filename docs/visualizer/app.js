@@ -22,6 +22,9 @@ const state = {
   canvas2d: null,
   buffers: null,
   lineBuffers: null,
+  footprintBuffers: null,
+  footprintScene: null,
+  footprint: null,
   activeCanvas: null,
   blankCheckId: 0,
   blankCheck: null,
@@ -42,6 +45,7 @@ const state = {
     opacity: 0.78,
     showGrid: true,
     showLabels: true,
+    showFootprint: false,
     gridOpacity: 0.35,
     labelSize: 12,
   },
@@ -72,7 +76,7 @@ function setupElements() {
     "loadingOverlay", "loadingText",
     "rendererSelect", "coordinateSelect", "projectionSelect", "colorBy", "sizeBy", "showObserved",
     "showEchoes", "zSlab", "pointScale", "opacity", "showGrid", "showLabels",
-    "gridOpacity", "labelSize", "blinkRate", "blinkBtn", "shotBtn", "fullBtn",
+    "showFootprint", "gridOpacity", "labelSize", "blinkRate", "blinkBtn", "shotBtn", "fullBtn",
     "hideBtn", "status", "cosmo", "legend",
   ]) {
     els[id] = $(id);
@@ -96,6 +100,7 @@ async function main() {
     state.base = await loadBaseColumns();
     setLoading(`Fetching ${state.realization.label} chunks...`);
     state.realizationData = await loadRealization(state.realization);
+    state.footprint = await loadFootprint();
 
     setLoading("Initializing renderer...");
     await initRenderer();
@@ -186,6 +191,22 @@ async function loadRealization(realization) {
   };
 }
 
+async function loadFootprint() {
+  const fp = state.manifest.footprint;
+  if (!fp || !fp.ra || !fp.dec) return null;
+  try {
+    return {
+      ra: await fetchArray(fp.ra),
+      dec: await fetchArray(fp.dec),
+      zNear: typeof fp.z_near === "number" ? fp.z_near : null,
+      zFar: typeof fp.z_far === "number" ? fp.z_far : null,
+    };
+  } catch (err) {
+    console.warn(`imaging-footprint layer unavailable: ${err.message || err}`);
+    return null;
+  }
+}
+
 function populateControls() {
   const controls = els;
   controls.methodSelect.innerHTML = "";
@@ -222,6 +243,10 @@ function populateControls() {
   controls.opacity.value = String(state.settings.opacity);
   controls.showGrid.checked = state.settings.showGrid;
   controls.showLabels.checked = state.settings.showLabels;
+  if (controls.showFootprint) {
+    controls.showFootprint.checked = state.settings.showFootprint;
+    controls.showFootprint.disabled = !state.manifest.footprint;
+  }
   controls.gridOpacity.value = String(state.settings.gridOpacity);
   controls.labelSize.value = String(state.settings.labelSize);
 }
@@ -306,7 +331,7 @@ function attachEvents() {
       rebuildScene(refit);
     });
   }
-  for (const [id, key] of [["showObserved", "showObserved"], ["showEchoes", "showEchoes"], ["showGrid", "showGrid"], ["showLabels", "showLabels"]]) {
+  for (const [id, key] of [["showObserved", "showObserved"], ["showEchoes", "showEchoes"], ["showGrid", "showGrid"], ["showLabels", "showLabels"], ["showFootprint", "showFootprint"]]) {
     els[id].addEventListener("change", () => {
       state.settings[key] = els[id].checked;
       rebuildScene(false);
@@ -429,6 +454,7 @@ async function initRenderer() {
   state.canvas2d = null;
   state.buffers = null;
   state.lineBuffers = null;
+  state.footprintBuffers = null;
   state.rendererNote = null;
   if (requested === "canvas2d") {
     initCanvasFallback("selected in renderer control");
@@ -469,6 +495,7 @@ function initCanvasFallback(reason) {
   state.gpu = null;
   state.buffers = null;
   state.lineBuffers = null;
+  state.footprintBuffers = null;
   let ctx = els.scene.getContext("2d", { alpha: false });
   if (!ctx) {
     resetSceneCanvas();
@@ -595,14 +622,17 @@ function rebuildScene(refit) {
   writeHashState();
   const catalog = assembleCatalog();
   state.catalog = catalog;
+  state.footprintScene = buildFootprintScene();      // used by both renderers
   state.bounds = computeBounds(catalog.positions);
   if (refit || !state.camera.hasFit) fitCamera();
   if (state.renderer === "webgpu") {
     uploadPointBuffers(catalog);
     buildGridBuffers();
+    uploadFootprintBuffers();
   } else {
     state.buffers = null;
     state.lineBuffers = null;
+    state.footprintBuffers = null;
   }
   updateAxisLabels();
   renderLegend();
@@ -901,6 +931,45 @@ function uploadPointBuffers(catalog) {
   state.buffers = { pointBuffer, colorBuffer, bindGroup, count: Math.max(1, catalog.count) };
 }
 
+const FOOTPRINT_COLOR = [0.45, 0.51, 0.60, 0.16];   // faint cool grey
+const FOOTPRINT_POINT_SIZE = 1.7;
+
+function buildFootprintScene() {
+  const fp = state.footprint;
+  if (!fp || !state.settings.showFootprint || !fp.ra || !fp.ra.length) return null;
+  // render the angular footprint at a single representative redshift: z is ignored
+  // by the sky projections (flat background) and becomes the shell radius in 3-D
+  // / comoving (a spherical cap). Use the survey's far edge as the outer cap.
+  const z = fp.zFar != null ? fp.zFar : 0.55;
+  const n = fp.ra.length;
+  const positions = new Float32Array(n * 4);
+  const colors = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    const pos = computeProjectedPosition(fp.ra[i], fp.dec[i], z);
+    positions.set([pos[0], pos[1], pos[2], FOOTPRINT_POINT_SIZE], i * 4);
+    colors.set(FOOTPRINT_COLOR, i * 4);
+  }
+  return { positions, colors, count: n };
+}
+
+function uploadFootprintBuffers() {
+  state.footprintBuffers = null;
+  if (!state.footprintScene || !state.footprintScene.count) return;
+  const { device, bindGroupLayout, cameraBuffer } = state.gpu;
+  const { positions, colors, count } = state.footprintScene;
+  const pointBuffer = createBufferWithData(device, positions, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+  const colorBuffer = createBufferWithData(device, colors, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+  const bindGroup = device.createBindGroup({
+    layout: bindGroupLayout,
+    entries: [
+      { binding: 0, resource: { buffer: cameraBuffer } },
+      { binding: 1, resource: { buffer: pointBuffer } },
+      { binding: 2, resource: { buffer: colorBuffer } },
+    ],
+  });
+  state.footprintBuffers = { pointBuffer, colorBuffer, bindGroup, count };
+}
+
 function createBufferWithData(device, typedArray, usage) {
   const buffer = device.createBuffer({
     size: Math.max(4, typedArray.byteLength),
@@ -1072,6 +1141,10 @@ function render() {
     pass.draw(state.lineBuffers.count);
   }
   pass.setPipeline(gpu.pipeline);
+  if (state.footprintBuffers) {                       // imaging-survey backdrop, behind galaxies
+    pass.setBindGroup(0, state.footprintBuffers.bindGroup);
+    pass.draw(6, state.footprintBuffers.count);
+  }
   pass.setBindGroup(0, state.buffers.bindGroup);
   pass.draw(6, state.buffers.count);
   pass.end();
@@ -1093,8 +1166,19 @@ function renderCanvas2d() {
   state.lastViewProj = viewProj;
   if (state.settings.showGrid && state.bounds) drawCanvasGrid(ctx, viewProj);
 
-  const { positions, colors, count } = state.catalog;
   const scale = billboardPixelScale();
+  if (state.footprintScene && state.footprintScene.count) {   // imaging-survey backdrop
+    const fs = state.footprintScene;
+    for (let i = 0; i < fs.count; i++) {
+      const p = i * 4;
+      const s = projectToScreen([fs.positions[p], fs.positions[p + 1], fs.positions[p + 2]], viewProj);
+      if (!s) continue;
+      const radius = Math.max(0.6, fs.positions[p + 3] * scale);
+      drawKernelBillboard(ctx, s[0], s[1], radius, fs.colors.subarray(p, p + 4));
+    }
+  }
+
+  const { positions, colors, count } = state.catalog;
   for (let i = 0; i < count; i++) {
     const p = i * 4;
     const s = projectToScreen([positions[p], positions[p + 1], positions[p + 2]], viewProj);

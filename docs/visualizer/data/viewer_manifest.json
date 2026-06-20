@@ -224,7 +224,33 @@
     "method_extension_point": "methods",
     "supported": true
   },
-  "generated_utc": "2026-06-19T23:06:00Z",
+  "footprint": {
+    "count": 45000,
+    "dec": {
+      "bytes": 180000,
+      "count": 45000,
+      "dtype": "<f4",
+      "file": "footprint/footprint_dec.f32.bin",
+      "sha256": "54379f7c61cc68c96295436e3a87f7c8115d2e5f0943e7d583d33752fa5b89f2",
+      "shape": [
+        45000
+      ]
+    },
+    "description": "Imaging-survey angular footprint (downsampled survey randoms, RA/Dec). Rendered at a representative redshift: a flat background in sky projections, a spherical cap in 3-D.",
+    "ra": {
+      "bytes": 180000,
+      "count": 45000,
+      "dtype": "<f4",
+      "file": "footprint/footprint_ra.f32.bin",
+      "sha256": "415aa1c8c8cf7b63f9c13f83fc7c2185b4350d29d3117fd672d2b38c2e50a298",
+      "shape": [
+        45000
+      ]
+    },
+    "z_far": 0.5999948382377625,
+    "z_near": 0.4500015676021576
+  },
+  "generated_utc": "2026-06-20T00:00:21Z",
   "generator": "pipeline/build_viewer_bundle.py",
   "methods": [
     {

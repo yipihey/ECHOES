@@ -30,8 +30,10 @@ from echoes.posterior import draw, load_package  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PACKAGE = ROOT / "data_release" / "cmass_south_posterior.npz"
+DEFAULT_RANDOMS = ROOT / "data_release" / "cmass_south_randoms.npz"
 DEFAULT_SOURCE = ROOT / "apps" / "echoes-viewer"
 DEFAULT_OUT = ROOT / "docs" / "visualizer"
+FOOTPRINT_MAX = 45000          # downsampled survey randoms tracing the imaging footprint
 
 from echoes.completion import prov_registry, group_registry
 
@@ -72,6 +74,33 @@ def _write_array(data_dir: Path, rel: str, arr: np.ndarray, dtype: str) -> dict[
         "count": int(out.size),
         "bytes": int(path.stat().st_size),
         "sha256": _sha256(path),
+    }
+
+
+def _build_footprint(data_dir: Path, randoms: Path | None, *, z_near: float, z_far: float,
+                     n_max: int = FOOTPRINT_MAX) -> dict[str, Any] | None:
+    """Footprint layer for the viewer: the imaging-survey angular coverage, traced
+    by a downsampled copy of the survey randoms (RA/Dec only). The viewer renders
+    these at a single representative redshift, so they read as a flat background in
+    sky projections and a spherical cap (shell) in 3-D / comoving views. Returns the
+    manifest ``footprint`` block, or ``None`` if no randoms file is available."""
+    if randoms is None or not Path(randoms).exists():
+        print(f"  (footprint skipped: randoms not found at {randoms})")
+        return None
+    with np.load(randoms, allow_pickle=False) as d:
+        ra = np.asarray(d["ra"], np.float32); dec = np.asarray(d["dec"], np.float32)
+    rng = np.random.default_rng(0)
+    if len(ra) > n_max:
+        idx = rng.choice(len(ra), n_max, replace=False); ra, dec = ra[idx], dec[idx]
+    return {
+        "description": "Imaging-survey angular footprint (downsampled survey randoms, RA/Dec). "
+                       "Rendered at a representative redshift: a flat background in sky "
+                       "projections, a spherical cap in 3-D.",
+        "count": int(len(ra)),
+        "z_near": float(z_near),
+        "z_far": float(z_far),
+        "ra": _write_array(data_dir, "footprint/footprint_ra.f32.bin", ra, "<f4"),
+        "dec": _write_array(data_dir, "footprint/footprint_dec.f32.bin", dec, "<f4"),
     }
 
 
@@ -177,6 +206,7 @@ def build_viewer_bundle(
     out: Path = DEFAULT_OUT,
     seeds: list[int] | tuple[int, ...] = (0, 1, 2, 3),
     enriched_npz: Path | None = None,
+    randoms: Path | None = DEFAULT_RANDOMS,
 ) -> Path:
     out = Path(out)
     source = Path(source)
@@ -224,6 +254,9 @@ def build_viewer_bundle(
         n_obs=n_obs,
         n_base=n_base,
     )
+
+    footprint = _build_footprint(data_dir, randoms,
+                                 z_near=float(pkg["zmin"]), z_far=float(pkg["zmax"]))
 
     realizations = []
     for seed in seeds:
@@ -302,6 +335,7 @@ def build_viewer_bundle(
         ],
         "provenance_codes": PROVENANCE_CODES,
         "provenance_groups": PROVENANCE_GROUPS,
+        "footprint": footprint,
         "enriched_bundle": {
             "supported": True,
             "description": "Pass --enriched-npz with one-dimensional observed/base columns to append raw catalog parameters, computed weights, or method diagnostics without changing the viewer runtime.",
@@ -336,6 +370,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="optional NPZ of 1-D numeric columns of length n_obs or n_base to expose in the viewer",
     )
+    p.add_argument(
+        "--randoms",
+        type=Path,
+        default=DEFAULT_RANDOMS,
+        help="survey randoms NPZ (RA/Dec) for the imaging-footprint layer; pass a missing "
+             "path to disable the footprint",
+    )
     return p.parse_args(argv)
 
 
@@ -347,6 +388,7 @@ def main(argv: list[str] | None = None) -> None:
         out=args.out,
         seeds=args.seeds,
         enriched_npz=args.enriched_npz,
+        randoms=args.randoms,
     )
     print(f"wrote {manifest_path}")
 
