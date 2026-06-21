@@ -12,8 +12,13 @@ data resampling), and stays in observed (RA, Dec, z) coordinates: cosmology-free
 
 Pipeline:
   1. ``fine_completeness_map`` — a finer HEALPix completeness/count map from the
-     dense random catalogue (resolves arcmin-scale holes the nside=256 map misses;
-     sub-arcmin masks remain unresolved — we lack the mangle veto polygons).
+     dense random catalogue (resolves arcmin-scale holes the nside=256 map misses).
+     The exact mangle veto polygons (bright-star/centerpost/badfield) ARE now
+     available: ``echoes.fill_footprint.load_analytic_completeness`` rasterises the
+     full BOSS selection ``completeness × veto`` shot-noise-free, and the contiguous
+     product (``build_fill_footprint(analytic_completeness=True)``) uses it to resolve
+     sub-arcmin holes / completeness striping. (The survey randoms remain the
+     gold-standard *clustering* window — the analytic footprint boundary is not.)
   2. ``find_interior_holes`` — connected components of empty interior pixels.
   3. ``inpaint_holes`` — analog-transplant fill, multiple realizations.
 

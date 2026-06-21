@@ -177,6 +177,32 @@ def _fill_interior_holes(mask_bool, nside, *, margin=24):
     return m | (empty & ~exterior)                         # unreached empties = holes
 
 
+def build_analytic_selmap(ra_data, dec_data, *, nside=256, lss_clip_deg=1.0,
+                          selection_npz=DEFAULT_SELECTION_NPZ):
+    """The LSS angular selection map from the EXACT pointing masks — random-independent.
+
+    ``completeness × veto`` (:func:`load_analytic_completeness`) clipped to the LSS
+    footprint = within ``lss_clip_deg`` of the real **galaxies** (not the survey
+    randoms), which trims the mangle geometry's over-spill (geometry sectors excluded
+    from the LSS sample) using only data. Exact, shot-noise-free at any ``nside``, and
+    independent of the shipped LSS randoms. Returns ``None`` if the cache is absent.
+
+    CAVEAT — NOT for clustering randoms. The completeness and interior veto structure
+    are exact, but the LSS *clustering footprint boundary* (which sectors are in the
+    sample — a tiling/chunk selection beyond the angular masks) is not, and w(θ) is
+    extremely sensitive to it: a galaxy-proximity boundary over-covers by ~3–4% and
+    inflates w(θ) by ~30–60% (the prior `make_mangle_randoms.py` boundary-fit limit,
+    confirmed to persist with the vetos). Use this for the completeness/deficit (the
+    contiguous fill) and field-interior conditioning, where the boundary is non-critical;
+    for clustering normalisation the SURVEY randoms remain the gold standard."""
+    ac = load_analytic_completeness(nside, selection_npz=selection_npz)
+    if ac is None:
+        return None
+    near = _proximity_clip(ac > 0, np.asarray(ra_data), np.asarray(dec_data),
+                           nside, lss_clip_deg)
+    return (ac * near).astype(np.float32)
+
+
 def _geometry_mask(nside, *, mangle_npy=None, mangle_ply=None):
     """Boolean HEALPix occupancy of the BOSS mangle GEOMETRY footprint, or None if
     no mangle source is available. Prefers the cached uniform-geometry randoms."""

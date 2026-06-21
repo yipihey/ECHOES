@@ -21,6 +21,15 @@ What we learned using it (documented here so the result is not re-litigated):
     and inflate w(theta) by up to ~50x. Clip to the LSS footprint (proximity to the
     survey random catalogue) before use -- see validate_dropin_uniform_randoms.py.
 
+UPDATE (analytic pointing masks): the 6 VETO masks (bright-star, centerpost, collision,
+badfield seeing/extinction) are now downloaded (SDSS lss/geometry, see pipeline/boss_selection.py)
+and the full selection completeness x veto is rasterised shot-noise-free
+(data/boss_selection_2048.npz, echoes.fill_footprint.load_analytic_completeness). The contiguous
+product uses it for the completeness/deficit. BUT the conclusion below still holds for CLUSTERING:
+matching the survey random requires the LSS footprint BOUNDARY (the tiled-sector / chunk selection,
+beyond the angular masks); a galaxy-proximity boundary over-covers ~3-4% and inflates w(theta) ~30-60%.
+So the survey random remains the clustering gold standard; the masks win for the completeness/interior.
+
 Conclusion: the equal-weight completed catalogue reproduces the official weighted
 survey to ~1.5% in w(theta) and ~1-2% in wp(rp)/xi0 USING THE SURVEY RANDOM, which
 for CMASS (COMP~0.99) IS the uniform-footprint window. A separately-constructed
