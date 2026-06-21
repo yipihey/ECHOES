@@ -38,7 +38,9 @@ N_RAND_MULT = 4
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2, 3])
-    ap.add_argument("--nside", type=int, default=256, help="fill footprint nside")
+    ap.add_argument("--nside", type=int, default=512, help="fill footprint nside (resolves thin stripes/holes)")
+    ap.add_argument("--field-nside", type=int, default=128,
+                    help="coarse nside for the field modulation (smooth at ~deg; big speedup vs per-pixel)")
     ap.add_argument("--transform", default="lognormal", help="non-Gaussian fill transform")
     args = ap.parse_args()
     cdir = os.path.join(OUT, "contiguous")
@@ -80,7 +82,8 @@ def main():
         ip = sample_inpaint_catalog(
             fp, donor_ra=ra_o, donor_dec=dec_o, donor_z=z_o,
             rand_ra=np.asarray(cat.ra_random), rand_dec=np.asarray(cat.dec_random),
-            mode="cr", seed=int(s), density_boost=wc, field_ctx=gm.field_ctx, transform=tf)
+            mode="cr", seed=int(s), density_boost=wc, field_ctx=gm.field_ctx, transform=tf,
+            field_nside=args.field_nside)
         p = os.path.join(cdir, f"inpaint_seed_{int(s):04d}.npz")
         np.savez_compressed(p, ra=ip["ra"], dec=ip["dec"], z=ip["z"],
                             prov=ip["prov"], uncert=ip["uncert"])

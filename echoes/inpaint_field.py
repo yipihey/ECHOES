@@ -41,7 +41,7 @@ def sample_inpaint_catalog(footprint, *, donor_ra, donor_dec, donor_z,
                            rand_ra, rand_dec, donor_colors=None, donor_mags=None,
                            mode="thin", seed=0, density_boost=1.0, uncert_scale_deg=1.0,
                            thin_oversample=8, thin_aperture_deg=0.7,
-                           field_ctx=None, cr_nz=40, transform=None):
+                           field_ctx=None, cr_nz=40, transform=None, field_nside=None):
     """Generate inpaint galaxies in the fill region of ``footprint``.
 
     Returns ``dict(ra, dec, z, prov, uncert)`` of NEW galaxies (``prov``=5). ``mode``:
@@ -111,7 +111,19 @@ def sample_inpaint_catalog(footprint, *, donor_ra, donor_dec, donor_z,
         pix_ra = np.degrees(phi); pix_dec = 90.0 - np.degrees(theta)
         zgrid = np.linspace(float(np.min(donor_z)), float(np.max(donor_z)), int(cr_nz))
         nbar_z = np.clip(footprint.nbar_z(zgrid), 0.0, None)
-        opd = los_overdensity(field_ctx, pix_ra, pix_dec, zgrid, n_samples=1, seed=seed)[:, 0, :]
+        # The conditional field is smooth at its ~degree correlation scale, so evaluate it
+        # over the unique COARSE parent pixels (``field_nside``) and broadcast to the fine
+        # fill pixels — this avoids one GP solve per fine pixel (the cost was O(N_fill), which
+        # dominates at nside≥512). The fill WEIGHT (1−cover) stays at the fine footprint nside
+        # to resolve thin stripes/holes; only the field MODULATION is coarsened.
+        fns = min(int(field_nside), footprint.nside) if field_nside else footprint.nside
+        if fns < footprint.nside:
+            uniq, inv = np.unique(hp.ang2pix(fns, theta, phi), return_inverse=True)
+            cth, cph = hp.pix2ang(fns, uniq)
+            opd = los_overdensity(field_ctx, np.degrees(cph), 90.0 - np.degrees(cth),
+                                  zgrid, n_samples=1, seed=seed)[:, 0, :][inv]
+        else:
+            opd = los_overdensity(field_ctx, pix_ra, pix_dec, zgrid, n_samples=1, seed=seed)[:, 0, :]
         # Tier-A non-Gaussian reshape of the per-pixel conditional field before it
         # sets the Poisson intensity (echoes.density_transform); None ⇒ Gaussian.
         if transform is not None:
@@ -133,21 +145,26 @@ def sample_inpaint_catalog(footprint, *, donor_ra, donor_dec, donor_z,
         target_total = nbar_ang * fw.sum() * density_boost
         lam = lam_raw * (target_total / max(lam_raw.sum(), 1e-12))
         counts = rng.poisson(np.clip(lam, 0.0, None))
-        res = hp.nside2resol(footprint.nside)
-        ras, decs, zs = [], [], []
-        for k in np.flatnonzero(counts):
-            n = int(counts[k])
-            dth = (rng.random(n) - 0.5) * res
-            dph = (rng.random(n) - 0.5) * res / max(np.sin(theta[k]), 1e-3)
-            decs.append(pix_dec[k] - np.degrees(dth))
-            ras.append((pix_ra[k] + np.degrees(dph)) % 360.0)
-            p = pz_pix[k]; s = p.sum()
-            zs.append(rng.choice(zgrid, size=n, p=p / s) if s > 0 else rng.choice(zgrid, size=n))
-        if not ras:
+        occ = np.flatnonzero(counts)
+        if len(occ) == 0:
             return _empty()
-        ra = np.concatenate(ras).astype(np.float32)
-        dec = np.concatenate(decs).astype(np.float32)
-        z = np.concatenate(zs).astype(np.float32)
+        # Vectorised placement (no per-pixel Python loop): expand each occupied pixel to
+        # its galaxies, jitter angles within the pixel, and draw z by per-pixel inverse-CDF.
+        src = np.repeat(occ, counts[occ])                      # source fill-pixel per galaxy
+        N = len(src)
+        res = hp.nside2resol(footprint.nside)
+        dth = (rng.random(N) - 0.5) * res
+        dph = (rng.random(N) - 0.5) * res / np.clip(np.sin(theta[src]), 1e-3, None)
+        dec = pix_dec[src] - np.degrees(dth)
+        ra = (pix_ra[src] + np.degrees(dph)) % 360.0
+        P = np.clip(pz_pix[occ], 0.0, None)                    # (n_occ, nz) per-pixel p(z)
+        ssum = P.sum(1, keepdims=True)
+        P = np.where(ssum > 0, P / np.maximum(ssum, 1e-30), 1.0 / len(zgrid))
+        cdf = np.cumsum(P, axis=1)                             # (n_occ, nz)
+        row = np.searchsorted(occ, src)                        # occ is sorted → row per galaxy
+        zidx = (cdf[row] < rng.random(N)[:, None]).sum(1)
+        z = zgrid[np.clip(zidx, 0, len(zgrid) - 1)]
+        ra = ra.astype(np.float32); dec = dec.astype(np.float32); z = z.astype(np.float32)
     else:
         raise ValueError(f"inpaint mode {mode!r} not recognised ('cr', 'thin', or 'analog')")
     if len(ra) == 0:

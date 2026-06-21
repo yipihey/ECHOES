@@ -113,8 +113,8 @@ tiling/veto striping (16% of CMASS-South sits below 0.8 completeness) is brought
 uniform survey density, not just the zero-coverage pixels.
 
 - `data_release/contiguous/inpaint_seed_*.npz` — the per-seed inpaint galaxies
-  (PROV=5; ~18,800 each, filling 781 deg² of holes + partial-completeness stripes to
-  uniform density, with cosmic-web texture). The only seed-varying part.
+  (PROV=5; ~23,900 each, filling 1010 deg² of holes + partial-completeness stripes to
+  uniform density at nside=512, with cosmic-web texture). The only seed-varying part.
 - `data_release/cmass_south_randoms_contiguous.npz` — uniform randoms over the
   **filled** footprint. **The contiguous catalog must be paired with these randoms**
   (not the masked ones) so data and randoms treat the filled regions identically.
