@@ -123,6 +123,26 @@ the random estimate) is captured exactly and the fill deficit *converges* with r
 (≈260 deg²) instead of growing with noise — so the fill is clean at nside 512 and 1024. The
 veto mangle masks (~1 GB, SDSS `lss/geometry/`) are not redistributed; the 4.4 MB cache is.
 
+**Why the *outer boundary* still comes from the randoms, not the masks.** The interior
+completeness is analytic (above), but the footprint **boundary** is taken from where the
+survey randoms exist (`cover_bool = counts > 0` in `fill_footprint.build_fill_footprint`),
+and this is deliberate. The final BOSS LSS window applies the **Anderson et al. (2014, §3.5)
+/ Reid et al. (2016) sector cuts** on top of `completeness × veto`: (1) `c > 0.7` (already
+baked into our mangle mask — min polygon weight 0.778), (2) a **2°-isolation cut** (drop
+sectors not surrounded within 2° by spectroscopically-observed sectors), and (3) a **minimum
+sector size 0.1273 deg²**. Cuts (2)–(3) need the spectroscopic-tiling bookkeeping (which
+sectors were observed + sector adjacency), which is **not in the mangle mask files** — it
+lives in the tiling/spAll products — so the exact window is *not analytically reproducible*
+from the masks we ship. Empirically, evaluating our `completeness × veto` at the survey-random
+footprint pixel centres returns 0 for ~7–9% of them (≈185–265 deg²): ~207 deg² from our vetoes
+(mostly the badfield-seeing/extinction striping mask) flagging sub-pixel regions where randoms
+still survive, plus ~58 deg² of completeness-mask-edge pixelization. The robust split is
+therefore: **boundary from the randoms** (a *binary* in/out, **not** shot-noise-limited —
+median ≈228 randoms/pixel at nside 256), **interior completeness from the analytic mask**
+(shot-noise-free). Full random-independence for the *clustering window* is thus not attainable
+without the tiling bookkeeping; the survey randoms remain the gold-standard window, while the
+analytic masks remain the right tool for the interior. (See `data/make_mangle_randoms.py`.)
+
 - `data_release/contiguous/inpaint_seed_*.npz` — the per-seed inpaint galaxies
   (PROV=5; ~23,900 each, filling 1010 deg² of holes + partial-completeness stripes to
   uniform density at nside=512, with cosmic-web texture). The only seed-varying part.
