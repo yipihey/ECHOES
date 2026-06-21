@@ -3,31 +3,31 @@
   "description": "Fully-contiguous BOSS CMASS-South: every interior hole inpainted with the data-driven non-Gaussian field; only the outer boundary remains.",
   "base_package": "cmass_south_posterior.npz",
   "randoms": "cmass_south_randoms_contiguous.npz",
-  "nside": 512,
+  "nside": 1024,
   "transform": "lognormal",
-  "target_mask_deg2": 2102.6,
-  "fill_deg2": 1010.1,
-  "parent_density_per_deg2": 100.4,
+  "target_mask_deg2": 2074.7,
+  "fill_deg2": 514.9,
+  "parent_density_per_deg2": 70.3,
   "seeds": [
     {
       "seed": 0,
-      "n_inpaint": 23669,
-      "inpaint_density_per_deg2": 23.4
+      "n_inpaint": 18749,
+      "inpaint_density_per_deg2": 36.4
     },
     {
       "seed": 1,
-      "n_inpaint": 23946,
-      "inpaint_density_per_deg2": 23.7
+      "n_inpaint": 18798,
+      "inpaint_density_per_deg2": 36.5
     },
     {
       "seed": 2,
-      "n_inpaint": 23905,
-      "inpaint_density_per_deg2": 23.7
+      "n_inpaint": 19021,
+      "inpaint_density_per_deg2": 36.9
     },
     {
       "seed": 3,
-      "n_inpaint": 23938,
-      "inpaint_density_per_deg2": 23.7
+      "n_inpaint": 18944,
+      "inpaint_density_per_deg2": 36.8
     }
   ],
   "note": "Contiguous catalog(seed) = draw(base_package, seed) + contiguous/inpaint_seed_*.npz. Pair with cmass_south_randoms_contiguous.npz. PROV=5 inpaint carries an 'uncert' prior-dominance flag; down-weight uncert>=0.5 for conservative use."

@@ -108,9 +108,20 @@ completeness regions** with the data-driven non-Gaussian field so the catalog ha
 the survey's **outer boundary, no inner holes and no completeness striping**
 (`pipeline/build_contiguous_release.py`; built on a topological footprint,
 `echoes.fill_footprint.build_fill_footprint(contiguous=True)`). The fill is
-**completeness-proportional** — it adds the deficit `(1 − cover)` everywhere, so the
-tiling/veto striping (16% of CMASS-South sits below 0.8 completeness) is brought to
-uniform survey density, not just the zero-coverage pixels.
+**completeness-proportional** — it adds the deficit `(1 − completeness)` everywhere, so
+the veto/badfield striping is brought to uniform survey density, not just the
+zero-coverage pixels.
+
+The completeness itself is the **exact BOSS angular selection** — `completeness_mask ×
+Π(veto_masks)` evaluated directly from the source mangle maps (`pipeline/boss_selection.py`;
+cached shot-noise-free at nside=2048 in `data/boss/boss_selection_2048.npz`, `ud_grade`-d to
+the fill resolution by `fill_footprint.load_analytic_completeness`). This makes the product
+**independent of the shipped LSS randoms**, whose finite count makes a random-derived
+completeness shot-noise-limited (split-half cover correlation 0.89 → 0.49 → 0.06 at nside
+256 → 512 → 1024). With the analytic completeness the real striping (≈7.5% below 0.8, *half*
+the random estimate) is captured exactly and the fill deficit *converges* with resolution
+(≈260 deg²) instead of growing with noise — so the fill is clean at nside 512 and 1024. The
+veto mangle masks (~1 GB, SDSS `lss/geometry/`) are not redistributed; the 4.4 MB cache is.
 
 - `data_release/contiguous/inpaint_seed_*.npz` — the per-seed inpaint galaxies
   (PROV=5; ~23,900 each, filling 1010 deg² of holes + partial-completeness stripes to

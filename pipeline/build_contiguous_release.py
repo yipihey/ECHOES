@@ -51,7 +51,9 @@ def main():
     pixarea = hp.nside2pixarea(args.nside, degrees=True)
 
     print("building contiguous footprint (all interior holes) ...", flush=True)
-    fp = build_fill_footprint(cat, nside=args.nside, contiguous=True)
+    # exact mangle-based completeness (shot-noise-free, random-independent) when the
+    # cached selection map is present — required for clean fills at nside>=512.
+    fp = build_fill_footprint(cat, nside=args.nside, contiguous=True, analytic_completeness=True)
     fill_deg2 = float((fp.fill_weight > 0).sum() * pixarea)
     tm_deg2 = float(fp.target_mask.sum() * pixarea)
     print(f"  target_mask {tm_deg2:.0f} deg^2, fill (holes) {fill_deg2:.0f} deg^2", flush=True)

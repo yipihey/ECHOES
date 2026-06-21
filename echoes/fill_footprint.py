@@ -33,6 +33,32 @@ import numpy as np
 from .inpaint import fine_completeness_map, find_interior_holes
 
 DEFAULT_MANGLE_NPY = "data/boss/mangle_uniform_radec.npy"
+DEFAULT_SELECTION_NPZ = "data/boss_selection_2048.npz"
+
+
+def load_analytic_completeness(nside, *, selection_npz=DEFAULT_SELECTION_NPZ):
+    """Exact angular completeness at ``nside``, shot-noise-free and INDEPENDENT of the
+    survey randoms.
+
+    The shipped LSS randoms are only a Monte-Carlo sampling of the angular selection
+    ``S = completeness × Π(1−veto)`` (mangle maps), so a random-COUNT completeness is
+    shot-noise-limited (split-half cover corr 0.89 @256 → 0.06 @1024 — which is why a
+    random-based fill over-fills at high nside). This loads the cached high-res
+    (nside=2048) selection rasterised straight from the BOSS mangle completeness +
+    veto masks (``pipeline/boss_selection.py``) and averages it down to ``nside``
+    (``ud_grade`` → the exact *fractional* completeness). Returns a ``(npix,)`` array
+    in [0,1], or ``None`` if the cache is absent."""
+    import os
+    import healpy as hp
+    if not os.path.exists(selection_npz):
+        return None
+    d = np.load(selection_npz)
+    n_hi = int(d["nside"])
+    m = np.zeros(12 * n_hi ** 2, np.float64)
+    m[d["ipix"]] = d["sel"]
+    if nside == n_hi:
+        return m.astype(np.float32)
+    return hp.ud_grade(m, nside_out=nside, power=0).astype(np.float32)
 
 
 @dataclass
@@ -198,7 +224,8 @@ def build_fill_footprint(catalog=None, *, ra_random=None, dec_random=None, z_dat
                          nside=512, mangle_ply="data/boss/mask_DR12v5_CMASS_South.ply",
                          mangle_npy=DEFAULT_MANGLE_NPY, lss_clip_deg=1.0,
                          empty_thresh=0.2, min_fill_deg2=2.0, n_z=64,
-                         contiguous=False, fill_deficit_thresh=0.05) -> FillFootprint:
+                         contiguous=False, fill_deficit_thresh=0.05,
+                         analytic_completeness=False) -> FillFootprint:
     """Build the :class:`FillFootprint` for a survey.
 
     Accepts either a loaded ``catalog`` (uses ``ra_random``/``dec_random``/``z_data``)
@@ -226,6 +253,17 @@ def build_fill_footprint(catalog=None, *, ra_random=None, dec_random=None, z_dat
     # observed coverage (0 in veto holes) + raw random counts (for hole finding)
     counts, observed_cover = fine_completeness_map(ra_random, dec_random, nside=nside)
     cover_bool = counts > 0
+    if analytic_completeness:
+        # use the EXACT mangle-based completeness (shot-noise-free) for the COMPLETENESS
+        # value (→ the fill deficit), so the proportional fill targets the REAL veto
+        # striping not Poisson noise (clean at high nside). The FOOTPRINT stays bounded by
+        # the data (cover_bool = where randoms exist; proximity-clipped below) — the
+        # integrity guard against filling the mangle geometry's over-spill beyond the
+        # genuine survey edge. Veto holes (analytic=0) inside the data region still fill
+        # (deficit=1, captured by the closing/target_mask).
+        ac = load_analytic_completeness(nside)
+        if ac is not None:
+            observed_cover = np.where(cover_bool, ac, 0.0).astype(np.float32)
 
     # intended-complete footprint = morphological CLOSING of the observed coverage:
     # fills holes/gaps enclosed within ~lss_clip_deg WITHOUT extending the outer survey
