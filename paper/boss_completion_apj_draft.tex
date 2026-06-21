@@ -460,6 +460,59 @@ galaxies and in the stochastic imaging-systematic analogs.}
 \label{fig:missing_nz}
 \end{figure*}
 
+\subsection{Coherent dependence of the missing redshifts}
+\label{subsec:copula}
+
+Step (i) of the sampler draws the missing redshifts independently, one uniform
+variate per target.  This is exactly a Gaussian copula with the identity
+correlation, and it makes the realizations conditionally independent given the
+observed catalog.  The per-object marginals are then correct---each $z_i$ is a
+proper draw from its posterior $p_i(z)$---but the \emph{joint} law omits the
+coherent dependence that neighboring missing galaxies inherit from the same
+underlying density field.  The omission is invisible to the per-object calibration
+of Section~\ref{subsec:calibration}, which tests marginals, yet it under-disperses
+the completion covariance of any statistic that couples scales or objects, most
+visibly the large-scale counts-in-cells variance; it is the origin of the mildly
+over-confident rank histogram noted there.
+
+We restore the dependence with a Gaussian copula whose correlation is the measured
+two-point function, leaving every marginal untouched.  Writing $F_i$ for the CDF of
+the per-object posterior $p_i(z)$ of Equation~(\ref{eq:localposterior}) and $\Phi$
+for the standard normal CDF, the missing redshifts are drawn as
+\begin{equation}
+z_i = F_i^{-1}\!\big(\Phi(g_i)\big), \qquad
+\mathbf{g}\sim\mathcal{N}(\mathbf{0},\,C), \qquad
+C_{ij} = \frac{\xi\big(|\mathbf{x}_i-\mathbf{x}_j|\big)}{\xi(0)},
+\label{eq:copula}
+\end{equation}
+where $\mathbf{x}_i$ is the comoving position of missing target $i$ (its angular
+position at the median of $p_i$) and $\xi$ is the same tabulated correlation kernel
+used by the field engine.  Because $C$ has unit diagonal, each $g_i$ is marginally
+a standard normal, so $\Phi(g_i)$ is exactly uniform and $z_i$ is exactly a draw
+from $p_i$: the copula changes only the \emph{joint} distribution of the missing
+redshifts, not any marginal.  The per-object probability-integral transform---and
+hence the calibration of Section~\ref{subsec:calibration}---is therefore identical
+to the independent sampler by construction rather than by re-tuning, and setting
+$C$ to the identity recovers the independent draw exactly.
+
+We store the copula compactly.  The correlation is factorized once as
+$C = BB^{\!\top} + D^2$, where $B$ holds the leading $K=128$ eigenmodes
+$B=V_K\Lambda_K^{1/2}$ and $D$ is the diagonal residual fixed by
+$\sum_k B_{ik}^2 + D_{ii}^2 = 1$; a draw is then
+$\mathbf{g}=B\boldsymbol{\eta}+D\boldsymbol{\epsilon}$ with
+$\boldsymbol{\eta}\in\mathbb{R}^{K}$ and $\boldsymbol{\epsilon}\in\mathbb{R}^{M}$
+standard normal, an $O(MK)$ operation that adds about 1~MB to the released file.
+Because the correlation acts in redshift space through the narrow, data-conditioned
+marginals $F_i$, the coupling is automatically suppressed where observed galaxies
+already pin the local field.  In the inject-and-recover suite the copula raises the
+total completion variance by $21\%$---recovering almost exactly the coherent
+component that the independent draw omits---with the increase concentrated in the
+large-scale counts-in-cells and intermediate nearest-neighbor bins and the
+small-scale over-dispersion of the independent draw partly corrected, while the
+per-object PIT is unchanged.  The copula is the default in the released package;
+the independent draw remains available and is reproduced bit-for-bit by disabling
+it.
+
 \subsection{Clustering measurements and acceptance metrics}
 \label{subsec:metrics}
 
