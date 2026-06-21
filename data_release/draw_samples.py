@@ -29,11 +29,22 @@ def _dequant(u, lo, hi):
     return lo + u.astype(np.float32) / 65535.0 * (hi - lo)
 
 
+def _phi(x):
+    """Standard-normal CDF Φ, pure numpy (A&S 7.1.26 erf, |err|≲1.5e-7) — must match
+    echoes.posterior._phi so this reproducer draws byte-identical copula catalogs."""
+    z = np.asarray(x, np.float64) / np.sqrt(2.0)
+    t = 1.0 / (1.0 + 0.3275911 * np.abs(z))
+    poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741
+                + t * (-1.453152027 + t * 1.061405429))))
+    erf = np.sign(z) * (1.0 - poly * np.exp(-z * z))
+    return 0.5 * (1.0 + erf)
+
+
 def load_package(path):
     """Load and de-quantize the posterior package (.npz)."""
     d = np.load(path)
     zmin, zmax = float(d["zmin"]), float(d["zmax"])
-    return {
+    pkg = {
         "n_obs": int(d["n_obs"]), "n_miss": int(d["n_miss"]), "zmin": zmin, "zmax": zmax,
         "qlev": d["qlev"].astype(np.float64), "jitter": float(d["jitter"]),
         "obs_z": _dequant(d["obs_z_q"], zmin, zmax),
@@ -41,14 +52,28 @@ def load_package(path):
         "base_ra": d["base_ra"], "base_dec": d["base_dec"],
         "base_wsys": d["base_wsys"].astype(np.float32), "base_prov": d["base_prov"],
     }
+    if "cmodes" in d.files:                                  # field-correlation copula modes
+        pkg["cmodes"] = d["cmodes"].astype(np.float32)
+        pkg["cdiag"] = d["cdiag"].astype(np.float32)
+    return pkg
 
 
-def draw(pkg, seed=0, systot=True):
-    """Draw one equal-weight completed realization. Returns dict(ra, dec, z, prov, N)."""
+def draw(pkg, seed=0, systot=True, copula=None):
+    """Draw one equal-weight completed realization. Returns dict(ra, dec, z, prov, N).
+
+    ``copula`` (None=auto/use modes if present, True=force, False=legacy IID) sets the
+    missing-redshift dependence; the copula keeps every per-object marginal unchanged."""
     rng = np.random.default_rng(seed)
     M = pkg["n_miss"]; qlev, invcdf = pkg["qlev"], pkg["invcdf"]; nq = len(qlev)
-    # vectorized inverse-CDF sampling of each missing galaxy's redshift
-    u = rng.random(M)
+    # missing-redshift uniforms: field-correlation copula (Φ of a correlated Gaussian
+    # with exact unit marginal variance) or legacy IID — marginals identical either way.
+    has_modes = pkg.get("cmodes") is not None
+    use_copula = has_modes if copula is None else bool(copula)
+    if use_copula:
+        cm, cd = pkg["cmodes"], pkg["cdiag"]
+        u = _phi(cm @ rng.standard_normal(cm.shape[1]) + cd * rng.standard_normal(M))
+    else:
+        u = rng.random(M)
     j = np.clip(np.searchsorted(qlev, u), 1, nq - 1)
     q0, q1 = qlev[j - 1], qlev[j]
     v0 = invcdf[np.arange(M), j - 1]; v1 = invcdf[np.arange(M), j]

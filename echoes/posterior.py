@@ -37,15 +37,73 @@ from .completion import (_radec_to_nhat, _clpair_density, _systot_restore_extras
 QUANT_VERSION = 1
 
 
+def _phi(x):
+    """Standard-normal CDF Φ, pure numpy (Abramowitz & Stegun 7.1.26 erf, |err|≲1.5e-7).
+
+    Used by the copula sampler to map a correlated Gaussian g (unit marginal variance)
+    to a uniform u=Φ(g); kept dependency-free so the lightweight numpy-only reproducer
+    (``data_release/draw_samples.py``) and ``echoes.draw`` produce IDENTICAL catalogs."""
+    z = np.asarray(x, np.float64) / np.sqrt(2.0)
+    t = 1.0 / (1.0 + 0.3275911 * np.abs(z))
+    poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741
+                + t * (-1.453152027 + t * 1.061405429))))
+    erf = np.sign(z) * (1.0 - poly * np.exp(-z * z))
+    return 0.5 * (1.0 + erf)
+
+
+def _build_copula_modes(base_ra, base_dec, n_obs, invcdf, qlev, cov, *, K=128, verbose=False):
+    """Low-rank factor of the field-correlation copula over the missing galaxies.
+
+    The released sampler draws ``z_i = invcdf_i(u_i)`` with IID ``u`` — a Gaussian
+    copula with the IDENTITY correlation, which under-disperses the coherent
+    large-scale completion variance (see ``validation/completion_covariance_shape``).
+    Here we replace the identity with the MEASURED field correlation ``C_ij =
+    ξ(|x_i-x_j|)/ξ(0)`` (the same ``(cov_bins,cov_vals)`` kernel the fieldpost engine
+    uses), placing each missing galaxy at its angular position and marginal-median
+    redshift. We store the leading ``K`` eigen-modes ``B = V_K √Λ_K`` plus a diagonal
+    residual ``d`` with ``BᵀB`` rows + d² = 1, so ``g = Bη + d⊙ε`` has EXACT unit
+    marginal variance ⇒ ``Φ(g_i)`` is exactly uniform ⇒ every per-object marginal
+    (hence the per-object PIT calibration) is unchanged; only the JOINT law gains the
+    cross-object dependence. The narrow data-conditioned marginals automatically damp
+    the coupling near observed galaxies (the conditioning is in z-space)."""
+    from .clustering import comoving_mpc_h
+    from .field_posterior import _cov_matrix, _k0
+    M = invcdf.shape[0]
+    if M == 0 or cov is None:
+        return None, None
+    ra_m = np.asarray(base_ra[n_obs:], np.float64)
+    dec_m = np.asarray(base_dec[n_obs:], np.float64)
+    qlev = np.asarray(qlev, np.float64)
+    z_med = np.array([np.interp(0.5, qlev, invcdf[i]) for i in range(M)])
+    X = comoving_mpc_h(z_med)[:, None] * _radec_to_nhat(ra_m, dec_m)          # (M,3) Mpc/h
+    C = _cov_matrix(cov, X, X) / max(_k0(cov), 1e-30)                         # unit-diag correlation
+    C = 0.5 * (C + C.T)
+    w, V = np.linalg.eigh(C)
+    K = int(min(K, M))
+    idx = np.argsort(w)[::-1][:K]
+    B = V[:, idx] * np.sqrt(np.clip(w[idx], 0.0, None))[None, :]              # (M,K)
+    d = np.sqrt(np.clip(1.0 - (B ** 2).sum(1), 0.0, None))
+    if verbose:
+        var_expl = float(np.clip(w[idx], 0, None).sum() / max(np.clip(w, 0, None).sum(), 1e-30))
+        print(f"[copula] M={M} K={K} captures {100*var_expl:.0f}% of field-correlation variance")
+    return B.astype(np.float32), d.astype(np.float32)
+
+
 def build_package(catalog, targets, photoz, *, dz_pool=None, nq=65, ngrid=256,
-                  K=150, bw_f=0.004, bw_p=0.02, jitter=None, verbose=False):
+                  K=150, bw_f=0.004, bw_p=0.02, jitter=None, verbose=False,
+                  copula=False, field_ctx=None, copula_modes=128):
     """Precompute the compact posterior package (the expensive step, done once).
 
     Mirrors the ``z_mode='field'`` posterior of
     :func:`observed_ls.complete_catalog_photoz`: for each missing target it builds
     p(z|n̂,colours) ∝ (1+δ_g(n̂,z))·n̄(z)·p_photoz(z) (× close-pair prior for
     collisions) and stores its inverse-CDF on ``nq`` quantile levels. Returns a dict
-    of plain arrays (see module docstring)."""
+    of plain arrays (see module docstring).
+
+    ``copula=True`` additionally stores the field-correlation copula modes (from
+    ``field_ctx.cov``, or a context built from ``catalog`` if not supplied) so
+    :func:`draw` injects the coherent cross-object dependence the IID sampler lacks —
+    marginals (hence calibration) unchanged (see :func:`_build_copula_modes`)."""
     from .photoz import photoz_features
 
     ra_o = np.asarray(catalog.ra_data, np.float64)
@@ -107,7 +165,7 @@ def build_package(catalog, targets, photoz, *, dz_pool=None, nq=65, ngrid=256,
     base_wsys = np.concatenate([wsys_o, wsys_o[np.clip(host, 0, len(z_o) - 1)]]).astype(np.float32)
     base_prov = np.concatenate([np.full(len(ra_o), PROV["observed"], np.int8), miss_prov.astype(np.int8)])
 
-    return {
+    pkg = {
         "n_obs": len(ra_o), "n_miss": M, "zmin": zmin, "zmax": zmax,
         "qlev": qlev.astype(np.float32), "jitter": float(jitter),
         "obs_z": z_o.astype(np.float32),                 # fixed observed redshifts
@@ -115,10 +173,32 @@ def build_package(catalog, targets, photoz, *, dz_pool=None, nq=65, ngrid=256,
         "base_wsys": base_wsys, "base_prov": base_prov,
         "invcdf": invcdf.astype(np.float32),             # (M, nq) per-object quantile fn
     }
+    if copula:
+        _attach_copula(pkg, catalog, field_ctx, invcdf, qlev, copula_modes, verbose)
+    return pkg
+
+
+def _attach_copula(pkg, catalog, field_ctx, invcdf, qlev, copula_modes, verbose):
+    """Build + attach the copula modes to ``pkg`` (no-op fallback to IID on failure)."""
+    cov = getattr(field_ctx, "cov", None)
+    if cov is None:
+        try:
+            from .fieldpost import build_field_context
+            cov = build_field_context(catalog, verbose=verbose).cov
+        except Exception as e:                                   # keep the package usable (IID)
+            if verbose:
+                print(f"[copula] no field kernel ({e}); shipping IID package")
+            return
+    cm, cd = _build_copula_modes(pkg["base_ra"], pkg["base_dec"], pkg["n_obs"],
+                                 invcdf, qlev, cov, K=copula_modes, verbose=verbose)
+    if cm is not None:
+        pkg["cmodes"] = cm
+        pkg["cdiag"] = cd
 
 
 def build_package_generative(catalog, targets, photoz, gen_model, *, dz_pool=None,
-                             nq=65, ngrid=256, bw_p=0.02, jitter=None, verbose=False):
+                             nq=65, ngrid=256, bw_p=0.02, jitter=None, verbose=False,
+                             copula=False, copula_modes=128):
     """Compact posterior package for the Tier-A generative engine.
 
     Identical layout to :func:`build_package` (same keys → the compact ``.npz`` and
@@ -197,7 +277,7 @@ def build_package_generative(catalog, targets, photoz, gen_model, *, dz_pool=Non
     base_wsys = np.concatenate([wsys_o, wsys_o[np.clip(host, 0, len(z_o) - 1)]]).astype(np.float32)
     base_prov = np.concatenate([np.full(len(ra_o), PROV["observed"], np.int8), miss_prov.astype(np.int8)])
 
-    return {
+    pkg = {
         "n_obs": len(ra_o), "n_miss": M, "zmin": zmin, "zmax": zmax,
         "qlev": qlev.astype(np.float32), "jitter": float(jitter),
         "obs_z": z_o.astype(np.float32),
@@ -206,6 +286,9 @@ def build_package_generative(catalog, targets, photoz, gen_model, *, dz_pool=Non
         "invcdf": invcdf.astype(np.float32),
         "package_engine": "generative",
     }
+    if copula:
+        _attach_copula(pkg, catalog, gen_model.field_ctx, invcdf, qlev, copula_modes, verbose)
+    return pkg
 
 
 def _quant(a, lo, hi):
@@ -219,6 +302,10 @@ def _dequant(u, lo, hi):
 def write_package(pkg, path):
     """Heavily-compressed serialization (.npz, uint16-quantised redshifts/CDF)."""
     zmin, zmax = pkg["zmin"], pkg["zmax"]
+    extra = {}
+    if pkg.get("cmodes") is not None:                                  # copula low-rank factor
+        extra["cmodes"] = pkg["cmodes"].astype(np.float16)            # (M, K)
+        extra["cdiag"] = pkg["cdiag"].astype(np.float16)             # (M,)
     np.savez_compressed(
         path,
         version=QUANT_VERSION, n_obs=pkg["n_obs"], n_miss=pkg["n_miss"],
@@ -229,13 +316,14 @@ def write_package(pkg, path):
         base_wsys=pkg["base_wsys"].astype(np.float16),
         base_prov=pkg["base_prov"],
         package_engine=str(pkg.get("package_engine", "field")),
+        **extra,
     )
 
 
 def load_package(path):
     d = np.load(path if str(path).endswith(".npz") else str(path) + ".npz")
     zmin, zmax = float(d["zmin"]), float(d["zmax"])
-    return {
+    pkg = {
         "n_obs": int(d["n_obs"]), "n_miss": int(d["n_miss"]), "zmin": zmin, "zmax": zmax,
         "qlev": d["qlev"].astype(np.float64), "jitter": float(d["jitter"]),
         "obs_z": _dequant(d["obs_z_q"], zmin, zmax),
@@ -244,21 +332,42 @@ def load_package(path):
         "base_wsys": d["base_wsys"].astype(np.float32), "base_prov": d["base_prov"],
         "package_engine": str(d["package_engine"]) if "package_engine" in d.files else "field",
     }
+    if "cmodes" in d.files:
+        pkg["cmodes"] = d["cmodes"].astype(np.float32)
+        pkg["cdiag"] = d["cdiag"].astype(np.float32)
+    return pkg
 
 
-def draw(pkg, seed=0, *, systot=True):
+def draw(pkg, seed=0, *, systot=True, copula=None):
     """Draw one equal-weight completed realization from the package (fast).
 
     Returns ``dict(ra, dec, z, prov)``. Equivalent in distribution to
     ``complete_catalog_photoz(..., z_mode='field')``. With ``systot=False`` the
-    WEIGHT_SYSTOT analog excess is skipped (just observed + missing)."""
+    WEIGHT_SYSTOT analog excess is skipped (just observed + missing).
+
+    ``copula`` selects the missing-redshift dependence: ``None`` (default) uses the
+    field-correlation copula iff the package carries copula modes, else IID; ``True``
+    forces it (errors if absent); ``False`` forces the legacy IID draw (reproduces
+    pre-copula catalogs bit-for-bit). The copula leaves every per-object marginal —
+    hence per-object PIT calibration — unchanged; it only adds the coherent
+    cross-object dependence that the IID draw under-disperses."""
     rng = np.random.default_rng(seed)
     n_obs, M = pkg["n_obs"], pkg["n_miss"]
     qlev, invcdf = pkg["qlev"], pkg["invcdf"]
     nq = len(qlev)
 
-    # vectorized inverse-CDF sampling: z_miss[i] = invcdf_i(u_i), shared qlev
-    u = rng.random(M)
+    # missing-redshift uniforms: field-correlation copula (Φ of a correlated Gaussian
+    # with EXACT unit marginal variance ⇒ marginals/PIT unchanged) or legacy IID.
+    has_modes = pkg.get("cmodes") is not None
+    use_copula = has_modes if copula is None else bool(copula)
+    if use_copula and not has_modes:
+        raise ValueError("copula=True but the package carries no copula modes")
+    if use_copula:
+        cm, cd = pkg["cmodes"], pkg["cdiag"]
+        g = cm @ rng.standard_normal(cm.shape[1]) + cd * rng.standard_normal(M)
+        u = _phi(g)
+    else:
+        u = rng.random(M)
     j = np.clip(np.searchsorted(qlev, u), 1, nq - 1)
     q0, q1 = qlev[j - 1], qlev[j]
     v0 = invcdf[np.arange(M), j - 1]; v1 = invcdf[np.arange(M), j]

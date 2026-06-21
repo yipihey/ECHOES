@@ -70,6 +70,17 @@ weights): the completion reproduces the official weighted BOSS clustering to ~1�
 Provenance flags (`PROV`): `0` observed-specz · `1` fiber-collided · `2`
 redshift-failure · `3` imaging-systematic analog · `4` zhost-fallback.
 
+### Joint dependence (optional copula)
+By default each missing redshift is drawn from its own posterior **independently** —
+correct per object, but it under-disperses the *coherent* large-scale completion
+variance by ~15–20% (anti-conservative for joint/higher-order use; see
+[`validation/completion_covariance_shape.py`](validation/completion_covariance_shape.py)).
+Building the package with `build_package(..., copula=True)` stores a compact
+field-correlation **copula** (low-rank modes from the measured ξ(r) kernel); `draw`
+then injects the cross-object dependence — **leaving every per-object marginal, hence
+the PIT calibration, unchanged** (only the joint law changes). `draw(pkg, seed,
+copula=False)` recovers the legacy independent draw bit-for-bit.
+
 ## Redshift / field engines
 - **KNN-field (default):** a fast local-density posterior along each sightline.
   Cosmology-free, compresses to the 2 MB released posterior. Used for the release.
