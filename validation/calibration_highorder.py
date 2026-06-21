@@ -1,12 +1,14 @@
 """Beyond-two-point calibration — is the ensemble a calibrated posterior for the
 nearest-neighbour and counts-in-cells statistics that are the paper's point?
 
-`calibration.py` shows the completion ensemble is a calibrated posterior for
-w_p(r_p). The higher-order statistics are more sensitive to the small-scale
-redshift assignment, so the calibration must be demonstrated there too. Across
-MultiDark-Patchy mocks we inject the systematics, build the completion ensemble,
-and test whether the truth falls within the ensemble credible interval at the
-nominal rate (coverage / PIT) for:
+`calibration.py` measures the completion uncertainty in w_p(r_p) and shows it is a
+small, sub-dominant fraction of cosmic variance (the 68% completion band is NOT meant
+to bracket cosmic truth at the nominal rate — by construction it conditions on the one
+observed realization). The higher-order statistics are more sensitive to the small-scale
+redshift assignment, so the same SIZE statement must be demonstrated there too. Across
+MultiDark-Patchy mocks we inject the systematics, build the completion ensemble, and
+report the completion-vs-cosmic scatter ratio (and the rank/PIT, which is intentionally
+non-uniform for the same reason) for:
 
   * the angular-3D kNN-CDF P_{>=k}(<r), k = 1, 2, 4 (Banerjee & Abel 2021), and
   * the counts-in-cells variance σ²_N/⟨N⟩ in fixed spheres,

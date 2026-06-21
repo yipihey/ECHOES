@@ -54,7 +54,15 @@ product against truth-known completions and MultiDark-Patchy mocks, finding
 that projected clustering is recovered to the 1--2\% level over
 $0.5<r_p<40\,h^{-1}{\rm Mpc}$, while the posterior completion uncertainty in
 $w_p(r_p)$ is only 0.17--0.44\% per bin, below the sample-variance scale of the
-BOSS South Galactic Cap.  We also describe a complementary field-level route:
+BOSS South Galactic Cap.  The ensemble is a \emph{conditional} completion
+posterior: it conditions on the single observed CMASS-South realization and
+resamples only the unobserved spectroscopic information, so its spread is the
+uncertainty of the completion --- to be added in quadrature to a
+cosmic-variance or simulation covariance, not used in place of it --- and it is
+deliberately not designed to bracket cosmic truth at the nominal rate.  We
+demonstrate this calibration at the per-object redshift level and in the
+ensemble-mean recovery of two-point and higher-order (nearest-neighbor,
+counts-in-cells) statistics.  We also describe a complementary field-level route:
 a kernel (FKP) estimate of the galaxy density field, built with a covariance
 tabulated from the measured correlation function and sampled as a
 coverage-scaled ensemble on a sparse neighbor graph, evaluated along each

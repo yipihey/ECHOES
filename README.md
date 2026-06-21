@@ -1,7 +1,7 @@
 # ECHOES
 
 **Equal-weight Completed Hypothetical Observation Ensembles** — survey-ready
-posterior samples of completed galaxy catalogs.
+samples of a **conditional completion posterior** for galaxy catalogs.
 
 ECHOES turns a spectroscopic survey into an **ensemble of equal-weight,
 cosmology-free completed catalogs**: every observed galaxy is kept at its measured
@@ -11,6 +11,17 @@ lets you run *any* clustering statistic — two-point, higher-order, marked,
 nearest-neighbor, topological, field-level — directly on completed point catalogs
 and propagate the observational-completion uncertainty by resampling, instead of
 re-deriving the survey weights for each new statistic.
+
+**What the ensemble is (and is not).** Each realization conditions on the *single*
+observed CMASS-South catalog and re-draws only the unobserved information (missing
+redshifts; imaging-systematic analogs). The spread across seeds is therefore the
+**completion uncertainty** — a conditional posterior `p(missing | observed, model)` —
+which is *added to* a cosmic-variance/simulation covariance, **not** a substitute for
+it: the ensemble deliberately does not regenerate the large-scale density field, so it
+does not bracket cosmic truth at the nominal rate (~8% of `wp` bins; by construction).
+Calibration is demonstrated at the per-object redshift level (PIT) and in ensemble-mean
+recovery of two-point *and* higher-order statistics; see [`docs/method.md`](docs/method.md)
+and the paper for the precise, conditional reading of "posterior."
 
 The first release completes **BOSS DR12 CMASS-South**. The structure is built to
 add more surveys over time.
