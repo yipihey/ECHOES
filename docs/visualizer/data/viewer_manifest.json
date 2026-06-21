@@ -126,7 +126,7 @@
         },
         "5": {
           "color": "#41d6b0",
-          "description": "Synthetic point filling a masked imaging hole (reserved; not currently produced).",
+          "description": "Generated galaxy filling a veto-mask hole / empty region where there is no imaging (no real counterpart). Carries a per-galaxy `uncert` prior-dominance flag; large-region fills are prior-dominated (IS_PRIOR_FILL) \u2014 see fill_regime().",
           "group": "inpainted:mask-hole",
           "label": "mask-hole inpaint",
           "short_label": "inpaint"
@@ -224,7 +224,7 @@
     "method_extension_point": "methods",
     "supported": true
   },
-  "generated_utc": "2026-06-19T23:06:00Z",
+  "generated_utc": "2026-06-21T00:02:36Z",
   "generator": "pipeline/build_viewer_bundle.py",
   "methods": [
     {
@@ -497,6 +497,277 @@
           "total_count": 119866
         }
       ]
+    },
+    {
+      "description": "",
+      "id": "generative",
+      "label": "Generative (non-Gaussian)",
+      "realizations": [
+        {
+          "base_count": 116413,
+          "chunks": {
+            "extra_dec": {
+              "bytes": 14040,
+              "count": 3510,
+              "dtype": "<f4",
+              "file": "methods/generative/seed-0000/extra_dec.f32.bin",
+              "sha256": "01d3332a4b4dbafffc8b3ab106177f4b8912d2d960230af1f35a62d9f2ff15eb",
+              "shape": [
+                3510
+              ]
+            },
+            "extra_provenance": {
+              "bytes": 3510,
+              "count": 3510,
+              "dtype": "|u1",
+              "file": "methods/generative/seed-0000/extra_provenance.u8.bin",
+              "sha256": "cfbcf1017a052b53fbcbf09841f69d8f98f7ecb5dc5564a0347b2e16dce63671",
+              "shape": [
+                3510
+              ]
+            },
+            "extra_ra": {
+              "bytes": 14040,
+              "count": 3510,
+              "dtype": "<f4",
+              "file": "methods/generative/seed-0000/extra_ra.f32.bin",
+              "sha256": "aea78dd428b4c957dd2de0e5c1bc929167a3d3967f730bc30eaf0605b0903650",
+              "shape": [
+                3510
+              ]
+            },
+            "extra_z": {
+              "bytes": 14040,
+              "count": 3510,
+              "dtype": "<f4",
+              "file": "methods/generative/seed-0000/extra_z.f32.bin",
+              "sha256": "2db302298a71b93cabf488b369ccc4c2680027ca7b0204b04be157b30034a95e",
+              "shape": [
+                3510
+              ]
+            },
+            "missing_z": {
+              "bytes": 27108,
+              "count": 6777,
+              "dtype": "<f4",
+              "file": "methods/generative/seed-0000/missing_z.f32.bin",
+              "sha256": "58c638bc88d1701c63f39d559e4ce09c7da2d3a8d65b5ce2f78381cbf218d468",
+              "shape": [
+                6777
+              ]
+            }
+          },
+          "extra_count": 3510,
+          "id": "seed-0000",
+          "label": "seed 0",
+          "provenance_counts": {
+            "0": 109636,
+            "1": 5272,
+            "2": 1505,
+            "3": 3510
+          },
+          "seed": 0,
+          "total_count": 119923
+        },
+        {
+          "base_count": 116413,
+          "chunks": {
+            "extra_dec": {
+              "bytes": 13860,
+              "count": 3465,
+              "dtype": "<f4",
+              "file": "methods/generative/seed-0001/extra_dec.f32.bin",
+              "sha256": "c5642a0d671104e5586b5cdce53182f046f893d586f503de5713f0655c7103c4",
+              "shape": [
+                3465
+              ]
+            },
+            "extra_provenance": {
+              "bytes": 3465,
+              "count": 3465,
+              "dtype": "|u1",
+              "file": "methods/generative/seed-0001/extra_provenance.u8.bin",
+              "sha256": "83fac45ac1bbbc7b275079a5130207d108d7cf7489ffbc232dfda6f962638396",
+              "shape": [
+                3465
+              ]
+            },
+            "extra_ra": {
+              "bytes": 13860,
+              "count": 3465,
+              "dtype": "<f4",
+              "file": "methods/generative/seed-0001/extra_ra.f32.bin",
+              "sha256": "3b3410eb4a784316bfa0c9fc86d3884042805fe743a2c8494104efc8fae93f0f",
+              "shape": [
+                3465
+              ]
+            },
+            "extra_z": {
+              "bytes": 13860,
+              "count": 3465,
+              "dtype": "<f4",
+              "file": "methods/generative/seed-0001/extra_z.f32.bin",
+              "sha256": "ae8a643ee75a86eda3ea0042c53f575821ad2e4f3d81f5a817e0668608342c12",
+              "shape": [
+                3465
+              ]
+            },
+            "missing_z": {
+              "bytes": 27108,
+              "count": 6777,
+              "dtype": "<f4",
+              "file": "methods/generative/seed-0001/missing_z.f32.bin",
+              "sha256": "5563034a0a4dd426ec9132562994decd4f96ea4b6bd399ee0c7090023d25bed0",
+              "shape": [
+                6777
+              ]
+            }
+          },
+          "extra_count": 3465,
+          "id": "seed-0001",
+          "label": "seed 1",
+          "provenance_counts": {
+            "0": 109636,
+            "1": 5272,
+            "2": 1505,
+            "3": 3465
+          },
+          "seed": 1,
+          "total_count": 119878
+        },
+        {
+          "base_count": 116413,
+          "chunks": {
+            "extra_dec": {
+              "bytes": 13716,
+              "count": 3429,
+              "dtype": "<f4",
+              "file": "methods/generative/seed-0002/extra_dec.f32.bin",
+              "sha256": "b202d648bbf7c5e4f949c7f9ab00621d6e679fa9997982c54ad0e83548073616",
+              "shape": [
+                3429
+              ]
+            },
+            "extra_provenance": {
+              "bytes": 3429,
+              "count": 3429,
+              "dtype": "|u1",
+              "file": "methods/generative/seed-0002/extra_provenance.u8.bin",
+              "sha256": "515189553ab70153547ed9e43072339e88601cf5ea30b044cfbb4b43b383d9f2",
+              "shape": [
+                3429
+              ]
+            },
+            "extra_ra": {
+              "bytes": 13716,
+              "count": 3429,
+              "dtype": "<f4",
+              "file": "methods/generative/seed-0002/extra_ra.f32.bin",
+              "sha256": "0701aa912deccba894fb8fc122483c915a046af9ab90ad67042a704f02660dda",
+              "shape": [
+                3429
+              ]
+            },
+            "extra_z": {
+              "bytes": 13716,
+              "count": 3429,
+              "dtype": "<f4",
+              "file": "methods/generative/seed-0002/extra_z.f32.bin",
+              "sha256": "54acd5012caf8f7f07d21654f9c31fbe6946543c886fa8a7dc066a8a46b0c732",
+              "shape": [
+                3429
+              ]
+            },
+            "missing_z": {
+              "bytes": 27108,
+              "count": 6777,
+              "dtype": "<f4",
+              "file": "methods/generative/seed-0002/missing_z.f32.bin",
+              "sha256": "fa74f2c79a176d61fdde69ec9347986618d876d34071dea3f85fe3dca43d927e",
+              "shape": [
+                6777
+              ]
+            }
+          },
+          "extra_count": 3429,
+          "id": "seed-0002",
+          "label": "seed 2",
+          "provenance_counts": {
+            "0": 109636,
+            "1": 5272,
+            "2": 1505,
+            "3": 3429
+          },
+          "seed": 2,
+          "total_count": 119842
+        },
+        {
+          "base_count": 116413,
+          "chunks": {
+            "extra_dec": {
+              "bytes": 13812,
+              "count": 3453,
+              "dtype": "<f4",
+              "file": "methods/generative/seed-0003/extra_dec.f32.bin",
+              "sha256": "b90a156d897309af3cae079781e2e866d2601377227e9355f442fc99f0804344",
+              "shape": [
+                3453
+              ]
+            },
+            "extra_provenance": {
+              "bytes": 3453,
+              "count": 3453,
+              "dtype": "|u1",
+              "file": "methods/generative/seed-0003/extra_provenance.u8.bin",
+              "sha256": "c6d1fbf11d680534fa6c4cdae642b41f8fb39abddfcd6f6ee4277558b3e3803c",
+              "shape": [
+                3453
+              ]
+            },
+            "extra_ra": {
+              "bytes": 13812,
+              "count": 3453,
+              "dtype": "<f4",
+              "file": "methods/generative/seed-0003/extra_ra.f32.bin",
+              "sha256": "cc08b5fe0eebebb3d5ec22b5e81cc80e69a5a5cf6c09675da71f550886bcdbf6",
+              "shape": [
+                3453
+              ]
+            },
+            "extra_z": {
+              "bytes": 13812,
+              "count": 3453,
+              "dtype": "<f4",
+              "file": "methods/generative/seed-0003/extra_z.f32.bin",
+              "sha256": "9a877ef7bfbb907f4d5a791f1bad7de9665d3b7c2db72abd577473414e0e998e",
+              "shape": [
+                3453
+              ]
+            },
+            "missing_z": {
+              "bytes": 27108,
+              "count": 6777,
+              "dtype": "<f4",
+              "file": "methods/generative/seed-0003/missing_z.f32.bin",
+              "sha256": "276405a6b459e2c6c22d50a524a221db45f5e3dd4c69e5f0fdc116d4f8c86e07",
+              "shape": [
+                6777
+              ]
+            }
+          },
+          "extra_count": 3453,
+          "id": "seed-0003",
+          "label": "seed 3",
+          "provenance_counts": {
+            "0": 109636,
+            "1": 5272,
+            "2": 1505,
+            "3": 3453
+          },
+          "seed": 3,
+          "total_count": 119866
+        }
+      ]
     }
   ],
   "provenance_codes": {
@@ -537,7 +808,7 @@
     },
     "5": {
       "color": "#41d6b0",
-      "description": "Synthetic point filling a masked imaging hole (reserved; not currently produced).",
+      "description": "Generated galaxy filling a veto-mask hole / empty region where there is no imaging (no real counterpart). Carries a per-galaxy `uncert` prior-dominance flag; large-region fills are prior-dominated (IS_PRIOR_FILL) \u2014 see fill_regime().",
       "group": "inpainted:mask-hole",
       "label": "mask-hole inpaint",
       "short_label": "inpaint"

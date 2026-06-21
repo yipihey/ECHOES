@@ -170,11 +170,41 @@ def _add_enriched_npz(
     return added
 
 
+def _build_method_realizations(data_dir, pkg, method_id, seeds, n_obs, n_base):
+    """Draw the per-seed realizations for one engine/method and write its chunks
+    under ``methods/<method_id>/``. Returns the manifest realization list."""
+    realizations = []
+    for seed in seeds:
+        cat = draw(pkg, seed=int(seed), systot=True)
+        z_miss = np.asarray(cat["z"][n_obs:n_base], dtype=np.float32)
+        extra_slice = slice(n_base, int(cat["N"]))
+        extra_count = int(cat["N"] - n_base)
+        prefix = f"methods/{method_id}/seed-{int(seed):04d}"
+        chunks = {
+            "missing_z": _write_array(data_dir, f"{prefix}/missing_z.f32.bin", z_miss, "<f4"),
+            "extra_ra": _write_array(data_dir, f"{prefix}/extra_ra.f32.bin", cat["ra"][extra_slice], "<f4"),
+            "extra_dec": _write_array(data_dir, f"{prefix}/extra_dec.f32.bin", cat["dec"][extra_slice], "<f4"),
+            "extra_z": _write_array(data_dir, f"{prefix}/extra_z.f32.bin", cat["z"][extra_slice], "<f4"),
+            "extra_provenance": _write_array(
+                data_dir, f"{prefix}/extra_provenance.u8.bin",
+                np.asarray(cat["prov"][extra_slice], dtype=np.uint8), "u1"),
+        }
+        counts = dict(zip(*[a.tolist() for a in np.unique(cat["prov"], return_counts=True)]))
+        realizations.append({
+            "id": f"seed-{int(seed):04d}", "label": f"seed {int(seed)}", "seed": int(seed),
+            "total_count": int(cat["N"]), "base_count": n_base, "extra_count": extra_count,
+            "provenance_counts": {str(k): int(v) for k, v in sorted(counts.items())},
+            "chunks": chunks,
+        })
+    return realizations
+
+
 def build_viewer_bundle(
     *,
     package: Path = DEFAULT_PACKAGE,
     source: Path = DEFAULT_SOURCE,
     out: Path = DEFAULT_OUT,
+    extra_methods: list | None = None,
     seeds: list[int] | tuple[int, ...] = (0, 1, 2, 3),
     enriched_npz: Path | None = None,
 ) -> Path:
@@ -225,36 +255,27 @@ def build_viewer_bundle(
         n_base=n_base,
     )
 
-    realizations = []
-    for seed in seeds:
-        cat = draw(pkg, seed=int(seed), systot=True)
-        z_miss = np.asarray(cat["z"][n_obs:n_base], dtype=np.float32)
-        extra_slice = slice(n_base, int(cat["N"]))
-        extra_count = int(cat["N"] - n_base)
-        prefix = f"methods/knn-field/seed-{int(seed):04d}"
-        chunks = {
-            "missing_z": _write_array(data_dir, f"{prefix}/missing_z.f32.bin", z_miss, "<f4"),
-            "extra_ra": _write_array(data_dir, f"{prefix}/extra_ra.f32.bin", cat["ra"][extra_slice], "<f4"),
-            "extra_dec": _write_array(data_dir, f"{prefix}/extra_dec.f32.bin", cat["dec"][extra_slice], "<f4"),
-            "extra_z": _write_array(data_dir, f"{prefix}/extra_z.f32.bin", cat["z"][extra_slice], "<f4"),
-            "extra_provenance": _write_array(
-                data_dir,
-                f"{prefix}/extra_provenance.u8.bin",
-                np.asarray(cat["prov"][extra_slice], dtype=np.uint8),
-                "u1",
-            ),
-        }
-        counts = dict(zip(*[a.tolist() for a in np.unique(cat["prov"], return_counts=True)]))
-        realizations.append({
-            "id": f"seed-{int(seed):04d}",
-            "label": f"seed {int(seed)}",
-            "seed": int(seed),
-            "total_count": int(cat["N"]),
-            "base_count": n_base,
-            "extra_count": extra_count,
-            "provenance_counts": {str(k): int(v) for k, v in sorted(counts.items())},
-            "chunks": chunks,
+    # primary method realizations (from the base package)
+    methods = [{
+        "id": "knn-field",
+        "label": "KNN-field ECHOES",
+        "description": "Default compact local-density/posterior engine used by the released ECHOES BOSS bundle.",
+        "realizations": _build_method_realizations(data_dir, pkg, "knn-field", seeds, n_obs, n_base),
+    }]
+    # optional comparison methods (e.g. the data-driven non-Gaussian 'generative'
+    # engine) — each from its own posterior package over the SAME observed+missing
+    # base, so the viewer overlays them and you can switch engine to compare.
+    for spec in (extra_methods or []):
+        mpkg = load_package(spec["package"])
+        if int(mpkg["n_obs"]) != n_obs or int(mpkg["n_miss"]) != n_miss:
+            raise ValueError(f"method {spec['id']!r} package base "
+                             f"({mpkg['n_obs']}+{mpkg['n_miss']}) != primary ({n_obs}+{n_miss})")
+        methods.append({
+            "id": spec["id"], "label": spec["label"],
+            "description": spec.get("description", ""),
+            "realizations": _build_method_realizations(data_dir, mpkg, spec["id"], seeds, n_obs, n_base),
         })
+    realizations = methods[0]["realizations"]
 
     manifest = {
         "schema_version": "echoes.viewer.v1",
@@ -292,14 +313,7 @@ def build_viewer_bundle(
             "description": "Fixed observed galaxies plus fixed missing-galaxy angular positions. Observed redshifts are stored once; missing redshifts are realization-specific.",
             "columns": base_columns,
         },
-        "methods": [
-            {
-                "id": "knn-field",
-                "label": "KNN-field ECHOES",
-                "description": "Default compact local-density/posterior engine used by the released ECHOES BOSS bundle.",
-                "realizations": realizations,
-            }
-        ],
+        "methods": methods,
         "provenance_codes": PROVENANCE_CODES,
         "provenance_groups": PROVENANCE_GROUPS,
         "enriched_bundle": {
@@ -336,17 +350,32 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="optional NPZ of 1-D numeric columns of length n_obs or n_base to expose in the viewer",
     )
+    p.add_argument(
+        "--method", action="append", default=[], metavar="id:label:package",
+        help="add a comparison engine as another method, e.g. "
+             "generative:Generative (non-Gaussian):data_release/cmass_south_posterior_generative.npz "
+             "(repeatable; must share the same observed+missing base as --package)",
+    )
     return p.parse_args(argv)
+
+
+def _parse_method_spec(spec: str) -> dict:
+    parts = spec.split(":")
+    if len(parts) < 3:
+        raise ValueError(f"--method must be id:label:package, got {spec!r}")
+    return {"id": parts[0], "label": parts[1], "package": Path(":".join(parts[2:]))}
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+    extra_methods = [_parse_method_spec(s) for s in args.method]
     manifest_path = build_viewer_bundle(
         package=args.package,
         source=args.source,
         out=args.out,
         seeds=args.seeds,
         enriched_npz=args.enriched_npz,
+        extra_methods=extra_methods,
     )
     print(f"wrote {manifest_path}")
 
