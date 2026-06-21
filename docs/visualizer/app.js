@@ -782,9 +782,13 @@ function interpDistance(z) {
 
 function pointSizeFor(row, values, ranges) {
   const key = state.settings.sizeBy;
-  if (key === "fixed") return row.source ? 3.2 : 2.0;
-  if (key === "source") return row.source ? 3.8 : 1.9;
-  if (key === "provenance" || key === "provenance_group") return row.prov === 0 ? 1.9 : 3.4;
+  // Categorical modes render a UNIFORM size: completed / inpainted galaxies are the
+  // SAME size as observed ones (the category is conveyed by colour, not size), so the
+  // added points don't dominate and hinder visual exploration. Only a numeric size-by
+  // (e.g. a weight) scales the marker.
+  if (key === "fixed" || key === "source" || key === "provenance" || key === "provenance_group") {
+    return 2.0;
+  }
   const value = values[key];
   if (!Number.isFinite(value)) return 2.2;
   const t = normalize(value, ranges[key] || [0, 1]);
