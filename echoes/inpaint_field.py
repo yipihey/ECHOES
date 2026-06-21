@@ -119,8 +119,11 @@ def sample_inpaint_catalog(footprint, *, donor_ra, donor_dec, donor_z,
         opd = np.clip(opd, 0.0, None)
         pz_pix = nbar_z[None, :] * opd                          # (Npix, nz) unnormalised p(z)
         opd_ang = pz_pix.sum(1) / max(nbar_z.sum(), 1e-12)      # n(z)-weighted mean (1+δ) per pix
-        n_cov = max(int((footprint.observed_cover > 0).sum()), 1)
-        nbar_ang = len(np.atleast_1d(donor_ra)) / n_cov         # parent galaxies per covered pixel
+        # parent density per FULLY-covered pixel = N_gal / effective covered area
+        # (Σ completeness, not pixel COUNT) — so a fractional fill_weight = (1−cover)
+        # brings each partial pixel exactly to the full survey density (mass-conserving).
+        eff_cov = max(float(np.clip(footprint.observed_cover, 0.0, 1.0).sum()), 1.0)
+        nbar_ang = len(np.atleast_1d(donor_ra)) / eff_cov
         fw = footprint.fill_weight[fill_pix]
         # amplitude calibration: the field gives the RELATIVE structure (opd_ang); the parent
         # density sets the TOTAL over the zero-coverage CORE (count-calibrated). Tested

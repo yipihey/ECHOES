@@ -103,14 +103,18 @@ Gate scripts (all under `validation/`): `transform_probe.py` (kNN-CDF / CiC),
 
 For consumers of **hole-sensitive** statistics (topology, kNN, field-level) the
 default masked footprint is unusable — those statistics break at interior holes. A
-**contiguous** product fills *every* interior veto hole with the data-driven
-non-Gaussian field so the catalog has only the survey's **outer boundary, no inner
-holes** (`pipeline/build_contiguous_release.py`; built on a topological footprint,
-`echoes.fill_footprint.build_fill_footprint(contiguous=True)`).
+**contiguous** product fills *every* interior veto hole **and the striped partial-
+completeness regions** with the data-driven non-Gaussian field so the catalog has only
+the survey's **outer boundary, no inner holes and no completeness striping**
+(`pipeline/build_contiguous_release.py`; built on a topological footprint,
+`echoes.fill_footprint.build_fill_footprint(contiguous=True)`). The fill is
+**completeness-proportional** — it adds the deficit `(1 − cover)` everywhere, so the
+tiling/veto striping (16% of CMASS-South sits below 0.8 completeness) is brought to
+uniform survey density, not just the zero-coverage pixels.
 
 - `data_release/contiguous/inpaint_seed_*.npz` — the per-seed inpaint galaxies
-  (PROV=5; ~7,100 each, filling 121 deg² of holes at the parent density ≈55/deg²,
-  with cosmic-web texture, not flat). The only seed-varying part.
+  (PROV=5; ~18,800 each, filling 781 deg² of holes + partial-completeness stripes to
+  uniform density, with cosmic-web texture). The only seed-varying part.
 - `data_release/cmass_south_randoms_contiguous.npz` — uniform randoms over the
   **filled** footprint. **The contiguous catalog must be paired with these randoms**
   (not the masked ones) so data and randoms treat the filled regions identically.

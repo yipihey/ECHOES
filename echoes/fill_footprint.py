@@ -198,7 +198,7 @@ def build_fill_footprint(catalog=None, *, ra_random=None, dec_random=None, z_dat
                          nside=512, mangle_ply="data/boss/mask_DR12v5_CMASS_South.ply",
                          mangle_npy=DEFAULT_MANGLE_NPY, lss_clip_deg=1.0,
                          empty_thresh=0.2, min_fill_deg2=2.0, n_z=64,
-                         contiguous=False) -> FillFootprint:
+                         contiguous=False, fill_deficit_thresh=0.05) -> FillFootprint:
     """Build the :class:`FillFootprint` for a survey.
 
     Accepts either a loaded ``catalog`` (uses ``ra_random``/``dec_random``/``z_data``)
@@ -207,12 +207,14 @@ def build_fill_footprint(catalog=None, *, ra_random=None, dec_random=None, z_dat
     interior gaps, lower it to be more conservative.
 
     ``contiguous`` (the fully-completed product): take the survey's outer boundary
-    (the mangle GEOMETRY, proximity-clipped to data) and **fill every interior hole
-    regardless of size** (:func:`_fill_interior_holes`), then fill **all** un-observed
-    pixels inside it (forces ``min_fill_deg2=0`` and ``empty_thresh→0``). The result
-    has only the outer boundary — no interior holes. Trades a small 2-point penalty
-    (masking small holes is exact) for a gap-free field that topological / kNN /
-    field-level statistics need; pair with randoms over the same ``target_mask``.
+    (the mangle GEOMETRY, proximity-clipped to data), **fill every interior hole
+    regardless of size** (:func:`_fill_interior_holes`), and set a **completeness-
+    proportional** ``fill_weight = (1 − cover)`` over the whole footprint — so the
+    striped partial-completeness regions (the tiling/veto pattern) AND empty holes are
+    filled to **uniform survey density**, not just the zero-coverage pixels. The result
+    is a gap-free, stripe-free field. ``fill_deficit_thresh`` skips near-full pixels.
+    Trades a few-% 2-point penalty (fractional fill double-counts) for the uniform field
+    topological / kNN / field-level statistics need; pair with randoms over ``target_mask``.
     """
     import healpy as hp
     if catalog is not None:
@@ -244,29 +246,35 @@ def build_fill_footprint(catalog=None, *, ra_random=None, dec_random=None, z_dat
         # near the data, else the closing) and fill EVERY interior hole, any size.
         base = geom_near if geom is not None else target_mask
         target_mask = _fill_interior_holes(base | cover_bool, nside)
-        min_fill_deg2 = 0.0                                    # fill all components
-        empty_thresh = 0.0                                     # every un-observed pixel
-
-    # Fill ONLY genuine zero-coverage pixels (binary). Partial-completeness rim pixels are
-    # NOT filled: at a real hole boundary they still contain galaxies, so filling them would
-    # double-count and inject spurious clustering power (verified: a fractional-rim fill
-    # worsens w(θ)/wp). Total density stays continuous across the rim — real galaxies on the
-    # covered side, inpaint on the empty side. The residual rim under-fill shrinks with finer
-    # ``nside`` (thinner erosion) without the double-count. ``empty_thresh`` = the
-    # completeness below which a pixel is a hole.
-    fill_weight = (target_mask & (observed_cover <= empty_thresh * 1e-3)).astype(float)
-    # SIZE GATE: only inpaint LARGE empty regions (>= min_fill_deg2). The 2-point clustering
-    # gate showed inpaint nets POSITIVE only for large regions (where masking leaves a big
-    # residual) and is counterproductive for small veto holes — masked randoms cancel a small
-    # hole exactly, so any inpaint can only add error. So small holes are left masked (the
-    # default scientific choice), and only large empty regions are filled + flagged.
-    if min_fill_deg2 and min_fill_deg2 > 0:
-        pixarea = hp.nside2pixarea(nside, degrees=True)
-        keep = np.zeros(npix, bool)
-        for comp in _connected_components(fill_weight > 0, nside):
-            if len(comp) * pixarea >= min_fill_deg2:
-                keep[comp] = True
-        fill_weight = fill_weight * keep
+        # COMPLETENESS-PROPORTIONAL fill: fill the DEFICIT (1 − cover) across the whole
+        # footprint, not just zero-coverage pixels. The survey's angular completeness is
+        # STRIPED (tiling / veto pattern: ~16% of CMASS-South has cover<0.8, 4%<0.5);
+        # a binary cover==0 fill leaves those partial stripes under-dense. Filling the
+        # deficit brings every pixel to uniform survey density → a gap-free, stripe-free
+        # field. (Fractional fill double-counts at the few-% level for 2-pt — the
+        # documented contiguity tradeoff; what topological / field-level stats need.)
+        deficit = np.clip(1.0 - observed_cover, 0.0, 1.0)
+        deficit[deficit < fill_deficit_thresh] = 0.0           # skip near-full pixels
+        fill_weight = target_mask.astype(float) * deficit
+    else:
+        # MASKED product: fill ONLY genuine zero-coverage pixels (binary). Partial-
+        # completeness rim pixels are NOT filled — at a real hole boundary they still
+        # contain galaxies, so filling them would double-count and inject spurious
+        # clustering power (verified: a fractional-rim fill worsens w(θ)/wp). Total density
+        # stays continuous across the rim. ``empty_thresh`` = completeness below which a
+        # pixel is a hole.
+        fill_weight = (target_mask & (observed_cover <= empty_thresh * 1e-3)).astype(float)
+        # SIZE GATE: only inpaint LARGE empty regions (>= min_fill_deg2). The 2-point
+        # gate showed inpaint nets POSITIVE only for large regions and is counterproductive
+        # for small veto holes (masked randoms cancel a small hole exactly). So small holes
+        # are left masked, and only large empty regions are filled + flagged.
+        if min_fill_deg2 and min_fill_deg2 > 0:
+            pixarea = hp.nside2pixarea(nside, degrees=True)
+            keep = np.zeros(npix, bool)
+            for comp in _connected_components(fill_weight > 0, nside):
+                if len(comp) * pixarea >= min_fill_deg2:
+                    keep[comp] = True
+            fill_weight = fill_weight * keep
     # true empty area (rim fractions included) over the hole neighbourhood — the total
     # galaxy mass the inpaint must place. Distributing this over the zero-coverage CORE
     # (fill_weight) conserves each hole's count without double-counting the rim.

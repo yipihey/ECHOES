@@ -6,28 +6,28 @@
   "nside": 256,
   "transform": "lognormal",
   "target_mask_deg2": 2110.5,
-  "fill_deg2": 120.9,
-  "parent_density_per_deg2": 55.1,
+  "fill_deg2": 780.7,
+  "parent_density_per_deg2": 82.4,
   "seeds": [
     {
       "seed": 0,
-      "n_inpaint": 7128,
-      "inpaint_density_per_deg2": 59.0
+      "n_inpaint": 18889,
+      "inpaint_density_per_deg2": 24.2
     },
     {
       "seed": 1,
-      "n_inpaint": 7231,
-      "inpaint_density_per_deg2": 59.8
+      "n_inpaint": 18776,
+      "inpaint_density_per_deg2": 24.1
     },
     {
       "seed": 2,
-      "n_inpaint": 7152,
-      "inpaint_density_per_deg2": 59.2
+      "n_inpaint": 18761,
+      "inpaint_density_per_deg2": 24.0
     },
     {
       "seed": 3,
-      "n_inpaint": 7001,
-      "inpaint_density_per_deg2": 57.9
+      "n_inpaint": 18815,
+      "inpaint_density_per_deg2": 24.1
     }
   ],
   "note": "Contiguous catalog(seed) = draw(base_package, seed) + contiguous/inpaint_seed_*.npz. Pair with cmass_south_randoms_contiguous.npz. PROV=5 inpaint carries an 'uncert' prior-dominance flag; down-weight uncert>=0.5 for conservative use."
