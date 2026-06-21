@@ -15,8 +15,8 @@ def test_seed0_census():
     assert counts[0] == 109636          # observed
     assert counts[1] == 5272            # fiber-collided
     assert counts[2] == 1505            # redshift-failure
-    assert counts[3] == 3510            # imaging-systematic analog
-    assert cat["N"] == 119923
+    assert counts[3] == 3472            # imaging-systematic analog (RNG-stream dependent)
+    assert cat["N"] == 119885
 
 
 def test_schema_and_determinism():
@@ -44,4 +44,4 @@ def test_cli_npz_output(tmp_path):
     draw_main(["--package", PKG, "--seed", "0", "--out", str(out)])
     d = np.load(out)
     assert set(d.files) == {"ra", "dec", "z", "prov"}
-    assert len(d["ra"]) == 119923
+    assert len(d["ra"]) == 119885

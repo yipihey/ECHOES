@@ -31,12 +31,12 @@ def test_viewer_bundle_manifest_and_seed0(tmp_path):
     assert method["id"] == "knn-field"
     realization = method["realizations"][0]
     assert realization["id"] == "seed-0000"
-    assert realization["total_count"] == 119923
+    assert realization["total_count"] == 119885
     assert realization["provenance_counts"] == {
         "0": 109636,
         "1": 5272,
         "2": 1505,
-        "3": 3510,
+        "3": 3472,
     }
 
     for group in (manifest["base"]["columns"], realization["chunks"]):

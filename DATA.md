@@ -13,9 +13,18 @@ Shipped in [`data_release/`](data_release/) and ready for Zenodo archival:
 
 | file | size | contents |
 |---|---|---|
-| `cmass_south_posterior.npz` | 2.0 MB | the full completion posterior — the fixed observed catalog plus an inverse-CDF redshift posterior for each missing target |
+| `cmass_south_posterior.npz` | 3.1 MB | the full completion posterior — the fixed observed catalog, an inverse-CDF redshift posterior for each missing target, and the field-correlation **copula** modes |
 | `cmass_south_randoms.npz` | 4.6 MB | uniform-footprint random catalog (RA, DEC, Z) |
 | `draw_samples.py` | — | standalone NumPy-only sampler |
+
+The missing redshifts are drawn through a **field-correlation copula** (low-rank modes
+of the measured ξ(r) correlation, stored in the package): the draw carries the coherent
+cross-object dependence of the density field, so the large-scale **completion covariance**
+is honest rather than ~19% under-dispersed, while every per-object marginal — hence the
+per-object PIT calibration — is identical to the independent draw (the copula changes only
+the joint law). `draw(pkg, seed, copula=False)` recovers the legacy independent draw
+bit-for-bit. See `validation/completion_covariance_shape.py` (the deficit) and
+`validation/copula_covariance_check.py` (the copula closing it; ×1.21 total variance).
 
 The GitHub Pages viewer at
 [`docs/visualizer/`](docs/visualizer/) is generated from the same posterior. Its
@@ -35,7 +44,7 @@ pkg = load_package("data_release/cmass_south_posterior.npz")
 cat = draw(pkg, seed=0)        # dict(ra, dec, z, prov, N)
 ```
 `echoes-draw` uses the in-repo posterior when run from a clone. From a package
-install it downloads the same 2 MB file once into `~/.cache/echoes` (or
+install it downloads the same ~3 MB file once into `~/.cache/echoes` (or
 `$ECHOES_DATA`) and verifies the SHA256 hash. FITS output is available with
 `pip install "echoes[fits] @ git+https://github.com/yipihey/ECHOES.git"` and
 `--out catalog.fits`.
@@ -211,7 +220,7 @@ With the inputs in `data/boss/`:
 python pipeline/build_release.py     # rebuilds cmass_south_posterior.npz + cmass_south_randoms.npz
 ```
 The seed-0 census is deterministic: 109,636 observed + 5,272 fiber-collided +
-1,505 redshift-failure + 3,510 imaging-systematic analogs = **119,923** galaxies.
+1,505 redshift-failure + 3,472 imaging-systematic analogs = **119,885** galaxies.
 
 Build the static WebGPU visualizer bundle from the released posterior:
 ```bash

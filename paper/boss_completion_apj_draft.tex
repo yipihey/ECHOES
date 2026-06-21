@@ -44,12 +44,12 @@ unknown redshifts are sampled from a data-driven posterior combining a
 color-space $k$-nearest-neighbor photo-$z$, an empirical close-pair prior, and a
 local-density line-of-sight prior.  Smooth imaging-systematic weights are
 represented by local analog galaxies rather than by per-object completeness
-weights.  The released posterior is compact: one 2.04 MB file stores the fixed
+weights.  The released posterior is compact: one 3.14 MB file stores the fixed
 observed catalog and the inverse CDF for each restored target, and a
 numpy-only sampler generates reproducible complete catalogs from integer seeds.
-For seed 0 the sample contains 119,923 equal-weight galaxies, of which 109,636
+For seed 0 the sample contains 119,885 equal-weight galaxies, of which 109,636
 are observed, 5,272 are restored fiber-collision targets, 1,505 are restored
-redshift failures, and 3,510 are imaging-systematic analogs.  We validate the
+redshift failures, and 3,472 are imaging-systematic analogs.  We validate the
 product against truth-known completions and MultiDark-Patchy mocks, finding
 that projected clustering is recovered to the 1--2\% level over
 $0.5<r_p<40\,h^{-1}{\rm Mpc}$, while the posterior completion uncertainty in
@@ -419,10 +419,12 @@ realization is only a draw from each per-object inverse CDF plus the stochastic
 imaging analogs.
 
 The release therefore stores this posterior as a single compressed file of
-2.04 MB: the fixed observed catalog, the base positions and provenance for the
-observed and restored targets, \texttt{WEIGHT\_SYSTOT}, and a tabulated
-inverse-CDF redshift posterior for each of the 6{,}777 missing targets (the file
-schema and quantization are given in Appendix~\ref{app:products}).  A matching
+3.14 MB: the fixed observed catalog, the base positions and provenance for the
+observed and restored targets, \texttt{WEIGHT\_SYSTOT}, a tabulated
+inverse-CDF redshift posterior for each of the 6{,}777 missing targets, and the
+field-correlation copula modes that give the missing redshifts their coherent
+cross-object dependence (the file schema and quantization are given in
+Appendix~\ref{app:products}).  A matching
 uniform-footprint random catalog contains 438{,}544 points; because CMASS-South
 is approximately 99\% complete in the angular mask, these randoms are uniform
 over the footprint to the percent level.
@@ -436,8 +438,8 @@ redshift CDF;
 \item return arrays \texttt{ra}, \texttt{dec}, \texttt{z}, \texttt{prov}, and
 \texttt{N}.
 \end{enumerate}
-For seed 0, the sampled catalog contains 119,923 objects: 109,636 observed,
-5,272 collision restorations, 1,505 redshift-failure restorations, and 3,510
+For seed 0, the sampled catalog contains 119,885 objects: 109,636 observed,
+5,272 collision restorations, 1,505 redshift-failure restorations, and 3,472
 smooth-systematic analogs.  Without the imaging analogs, the fixed base catalog
 contains 116,413 objects.
 
@@ -634,7 +636,7 @@ numbers are as follows.  The observed catalog has 109,636 CMASS-South galaxies.
 The real missing-target list contains 5,272 collision targets and 1,505
 redshift-failure targets.  The fixed base catalog therefore has 116,413
 galaxies.  With the imaging-systematic analog sampler enabled, seed 0 has
-119,923 galaxies, including 3,510 analogs.  Seeds 0--4 vary only at the
+119,885 galaxies, including 3,472 analogs.  Seeds 0--4 vary only at the
 $\simeq 0.1\%$ level in total count, as expected for the smooth analog step.
 
 Figure \ref{fig:missing_nz} shows the restored-target population and sampled
@@ -1090,7 +1092,7 @@ used for the comparisons in Section \ref{subsec:graphgp_results}.
 The release in the repository's \texttt{data\_release/} directory contains the compact
 posterior \texttt{cmass\_south\_posterior.npz} (the fixed observed catalog plus
 an inverse-CDF redshift posterior for each restored target, tabulated at 65
-quantile levels and quantized to \texttt{uint16} for a 2.04 MB total), the
+quantile levels and quantized to \texttt{uint16}, plus the field-correlation copula modes, for a 3.14 MB total), the
 matching uniform-footprint randoms \texttt{cmass\_south\_randoms.npz}, and a
 NumPy-only sampler \texttt{draw\_samples.py}.  A completed catalog is drawn from an integer
 seed with

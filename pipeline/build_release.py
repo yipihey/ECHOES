@@ -38,7 +38,11 @@ def main():
                     help="generative transform: lognormal (shot-noise-deconvolved, the "
                          "calibration-friendly default) | empirical (max raw kNN, over-skews) | identity")
     ap.add_argument("--cic-R", type=float, default=8.0, help="CiC scale [Mpc/h] for T")
+    ap.add_argument("--no-copula", action="store_true",
+                    help="ship the legacy IID sampler (no field-correlation copula modes)")
+    ap.add_argument("--copula-modes", type=int, default=128, help="low-rank copula mode count")
     args = ap.parse_args()
+    copula = not args.no_copula
 
     os.makedirs(OUT, exist_ok=True)
     cat = load_boss([DATA], [RAND], sample="CMASS", nside=256, with_photometry=True)
@@ -48,12 +52,21 @@ def main():
     tg = load_cmass_targets(cat, path=TARGETS, seed=0)
 
     # ---- posterior package ----
+    # The field-correlation copula adds the coherent cross-object dependence the IID
+    # sampler under-disperses (recovers the ~19% large-scale completion-variance deficit;
+    # validation/copula_covariance_check.py), with per-object marginals/PIT unchanged.
     if args.engine == "generative":
         from echoes.generative import build_generative_model
         gm = build_generative_model(cat, transform=args.transform, cic_R=args.cic_R, verbose=True)
-        pkg = PS.build_package_generative(cat, tg, pz, gm, dz_pool=dz, verbose=True)
+        pkg = PS.build_package_generative(cat, tg, pz, gm, dz_pool=dz, verbose=True,
+                                          copula=copula, copula_modes=args.copula_modes)
     else:
-        pkg = PS.build_package(cat, tg, pz, dz_pool=dz, verbose=True)
+        fctx = None
+        if copula:
+            from echoes.fieldpost import build_field_context
+            fctx = build_field_context(cat, sel_map=cat.sel_map, nside=cat.nside, verbose=True)
+        pkg = PS.build_package(cat, tg, pz, dz_pool=dz, verbose=True,
+                               copula=copula, field_ctx=fctx, copula_modes=args.copula_modes)
     ppath = os.path.join(OUT, "cmass_south_posterior.npz")
     PS.write_package(pkg, ppath)
     psz = os.path.getsize(ppath)
@@ -100,6 +113,13 @@ A fixed, reproducible ensemble of K catalogs is just K seeds (0..K-1) — no nee
 store K copies (the observed galaxies are shared). Pair the catalogs with
 `cmass_south_randoms.npz` and use equal weights (no completeness weights needed):
 the completion reproduces the official w_c-weighted clustering to ~1-2%.
+
+{"This package carries a field-correlation **copula**: the missing redshifts are drawn"
+ " with the coherent cross-object dependence of the measured xi(r), not independently,"
+ " so the large-scale completion covariance is honest (the per-object marginals are"
+ " identical to the independent draw). `draw(pkg, seed, copula=False)` recovers the"
+ " independent draw." if copula else
+ "This package uses the independent (IID) missing-redshift draw."}
 
 ## Columns
 RA, DEC [deg]; Z (redshift); PROV (per-object provenance, int8):
