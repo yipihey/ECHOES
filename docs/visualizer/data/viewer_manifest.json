@@ -212,7 +212,7 @@
   "default_view": {
     "color_by": "provenance",
     "coordinate_mode": "comoving",
-    "method_id": "knn-field",
+    "method_id": "contiguous",
     "projection": "3d",
     "realization_id": "seed-0000",
     "size_by": "source"
@@ -224,7 +224,7 @@
     "method_extension_point": "methods",
     "supported": true
   },
-  "generated_utc": "2026-06-21T00:02:36Z",
+  "generated_utc": "2026-06-21T04:20:09Z",
   "generator": "pipeline/build_viewer_bundle.py",
   "methods": [
     {
@@ -766,6 +766,281 @@
           },
           "seed": 3,
           "total_count": 119866
+        }
+      ]
+    },
+    {
+      "description": "Fully-contiguous catalog: every interior veto hole inpainted with the data-driven non-Gaussian field (PROV=5); only the outer boundary remains.",
+      "id": "contiguous",
+      "label": "Contiguous (no inner holes)",
+      "realizations": [
+        {
+          "base_count": 116413,
+          "chunks": {
+            "extra_dec": {
+              "bytes": 42552,
+              "count": 10638,
+              "dtype": "<f4",
+              "file": "methods/contiguous/seed-0000/extra_dec.f32.bin",
+              "sha256": "37cebb369acc40567abd7962787e6400d17c74a81478b96c02dcf3b7a3fb02fa",
+              "shape": [
+                10638
+              ]
+            },
+            "extra_provenance": {
+              "bytes": 10638,
+              "count": 10638,
+              "dtype": "|u1",
+              "file": "methods/contiguous/seed-0000/extra_provenance.u8.bin",
+              "sha256": "4dd23d66dbc913c4caf9efc7d050d3e1e48abbfeaa05211cc3ec7d03fcd81eeb",
+              "shape": [
+                10638
+              ]
+            },
+            "extra_ra": {
+              "bytes": 42552,
+              "count": 10638,
+              "dtype": "<f4",
+              "file": "methods/contiguous/seed-0000/extra_ra.f32.bin",
+              "sha256": "1bece7d13c180a5563e3d5a79918f9a3edcf6314ddda836434e3fd0ba73d9b70",
+              "shape": [
+                10638
+              ]
+            },
+            "extra_z": {
+              "bytes": 42552,
+              "count": 10638,
+              "dtype": "<f4",
+              "file": "methods/contiguous/seed-0000/extra_z.f32.bin",
+              "sha256": "141a1681eec7f7f107dbeed3aed7cb6f4f4395f7914b07f6e20bcacc75c7fe3a",
+              "shape": [
+                10638
+              ]
+            },
+            "missing_z": {
+              "bytes": 27108,
+              "count": 6777,
+              "dtype": "<f4",
+              "file": "methods/contiguous/seed-0000/missing_z.f32.bin",
+              "sha256": "abad8518078a824cc0d24e9d7431a10ef9e8de4c441c6c40156238acb00663f2",
+              "shape": [
+                6777
+              ]
+            }
+          },
+          "extra_count": 10638,
+          "id": "seed-0000",
+          "label": "seed 0",
+          "provenance_counts": {
+            "0": 109636,
+            "1": 5272,
+            "2": 1505,
+            "3": 3510,
+            "5": 7128
+          },
+          "seed": 0,
+          "total_count": 127051
+        },
+        {
+          "base_count": 116413,
+          "chunks": {
+            "extra_dec": {
+              "bytes": 42784,
+              "count": 10696,
+              "dtype": "<f4",
+              "file": "methods/contiguous/seed-0001/extra_dec.f32.bin",
+              "sha256": "e37e3d24a66c80e7403fa8092ee720cf39170818a87b93156ddf0109272a91b2",
+              "shape": [
+                10696
+              ]
+            },
+            "extra_provenance": {
+              "bytes": 10696,
+              "count": 10696,
+              "dtype": "|u1",
+              "file": "methods/contiguous/seed-0001/extra_provenance.u8.bin",
+              "sha256": "ba05cfefa25a21962924af1cc3446d8822fcfcbe3e11ef79815cc7cb4d2184c4",
+              "shape": [
+                10696
+              ]
+            },
+            "extra_ra": {
+              "bytes": 42784,
+              "count": 10696,
+              "dtype": "<f4",
+              "file": "methods/contiguous/seed-0001/extra_ra.f32.bin",
+              "sha256": "297132930ceae212343d43bc97e51b333a3c0baaec3a8c08425bdd930ac95ec1",
+              "shape": [
+                10696
+              ]
+            },
+            "extra_z": {
+              "bytes": 42784,
+              "count": 10696,
+              "dtype": "<f4",
+              "file": "methods/contiguous/seed-0001/extra_z.f32.bin",
+              "sha256": "0f1cd52a28cc585f0cf799614ccac0bfec3a71288f581d305c450bb5e09a7938",
+              "shape": [
+                10696
+              ]
+            },
+            "missing_z": {
+              "bytes": 27108,
+              "count": 6777,
+              "dtype": "<f4",
+              "file": "methods/contiguous/seed-0001/missing_z.f32.bin",
+              "sha256": "00fc1f049d8ebb2e53bf6025b93e8b1aea4b67c9c09d2d366e1dddb49fe61a28",
+              "shape": [
+                6777
+              ]
+            }
+          },
+          "extra_count": 10696,
+          "id": "seed-0001",
+          "label": "seed 1",
+          "provenance_counts": {
+            "0": 109636,
+            "1": 5272,
+            "2": 1505,
+            "3": 3465,
+            "5": 7231
+          },
+          "seed": 1,
+          "total_count": 127109
+        },
+        {
+          "base_count": 116413,
+          "chunks": {
+            "extra_dec": {
+              "bytes": 42324,
+              "count": 10581,
+              "dtype": "<f4",
+              "file": "methods/contiguous/seed-0002/extra_dec.f32.bin",
+              "sha256": "8339545a4c0c42b7ddfc8fa1f200fe3bd2441ae6f1d3b1d045fc65d43a7b075e",
+              "shape": [
+                10581
+              ]
+            },
+            "extra_provenance": {
+              "bytes": 10581,
+              "count": 10581,
+              "dtype": "|u1",
+              "file": "methods/contiguous/seed-0002/extra_provenance.u8.bin",
+              "sha256": "475a169c87245ccee0ab7e85007e6ad4e770fbc2fff5535107923744a8e2ca96",
+              "shape": [
+                10581
+              ]
+            },
+            "extra_ra": {
+              "bytes": 42324,
+              "count": 10581,
+              "dtype": "<f4",
+              "file": "methods/contiguous/seed-0002/extra_ra.f32.bin",
+              "sha256": "c9adad2ecd63cacdae0105934c8a4dd1edf2674baf6d4d7c69b9aa453f78a012",
+              "shape": [
+                10581
+              ]
+            },
+            "extra_z": {
+              "bytes": 42324,
+              "count": 10581,
+              "dtype": "<f4",
+              "file": "methods/contiguous/seed-0002/extra_z.f32.bin",
+              "sha256": "40cc44baf821a9ae32dd7685b0c48e61bb7e23c5ea794d5c5822f5b36e9c9e46",
+              "shape": [
+                10581
+              ]
+            },
+            "missing_z": {
+              "bytes": 27108,
+              "count": 6777,
+              "dtype": "<f4",
+              "file": "methods/contiguous/seed-0002/missing_z.f32.bin",
+              "sha256": "9bf5620588206166eb73df0fd7ea35b442efeb38009d4d0d7fad49249d0f18d3",
+              "shape": [
+                6777
+              ]
+            }
+          },
+          "extra_count": 10581,
+          "id": "seed-0002",
+          "label": "seed 2",
+          "provenance_counts": {
+            "0": 109636,
+            "1": 5272,
+            "2": 1505,
+            "3": 3429,
+            "5": 7152
+          },
+          "seed": 2,
+          "total_count": 126994
+        },
+        {
+          "base_count": 116413,
+          "chunks": {
+            "extra_dec": {
+              "bytes": 41816,
+              "count": 10454,
+              "dtype": "<f4",
+              "file": "methods/contiguous/seed-0003/extra_dec.f32.bin",
+              "sha256": "08ccb8ddc5de16dbd7c0b0990792ff211871fc9d02ff7485ea3d06e49fa6ff69",
+              "shape": [
+                10454
+              ]
+            },
+            "extra_provenance": {
+              "bytes": 10454,
+              "count": 10454,
+              "dtype": "|u1",
+              "file": "methods/contiguous/seed-0003/extra_provenance.u8.bin",
+              "sha256": "b284b9d0238dc188c1b3cc1a0c069ea4f7a15e628c3a00f79a23be323e50027b",
+              "shape": [
+                10454
+              ]
+            },
+            "extra_ra": {
+              "bytes": 41816,
+              "count": 10454,
+              "dtype": "<f4",
+              "file": "methods/contiguous/seed-0003/extra_ra.f32.bin",
+              "sha256": "3441c189393c2ab141c21993b5cf9317a9541956bd9ab18390ea6e2161d18d03",
+              "shape": [
+                10454
+              ]
+            },
+            "extra_z": {
+              "bytes": 41816,
+              "count": 10454,
+              "dtype": "<f4",
+              "file": "methods/contiguous/seed-0003/extra_z.f32.bin",
+              "sha256": "1347867c54ac7996e687ed222ca9211636fce123edbf8c143471a65e6a952926",
+              "shape": [
+                10454
+              ]
+            },
+            "missing_z": {
+              "bytes": 27108,
+              "count": 6777,
+              "dtype": "<f4",
+              "file": "methods/contiguous/seed-0003/missing_z.f32.bin",
+              "sha256": "7767a9c4766547d1f4a024c77c7255ade43df400bdedaf49f80687f5fcded3af",
+              "shape": [
+                6777
+              ]
+            }
+          },
+          "extra_count": 10454,
+          "id": "seed-0003",
+          "label": "seed 3",
+          "provenance_counts": {
+            "0": 109636,
+            "1": 5272,
+            "2": 1505,
+            "3": 3453,
+            "5": 7001
+          },
+          "seed": 3,
+          "total_count": 126867
         }
       ]
     }

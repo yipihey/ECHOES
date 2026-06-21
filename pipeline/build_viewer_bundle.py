@@ -170,29 +170,52 @@ def _add_enriched_npz(
     return added
 
 
-def _build_method_realizations(data_dir, pkg, method_id, seeds, n_obs, n_base):
+def _load_inpaint(inpaint_dir, seed):
+    """Per-seed inpaint galaxies (PROV=5) written by build_contiguous_release.py, or
+    None if absent for this seed."""
+    if inpaint_dir is None:
+        return None
+    p = Path(inpaint_dir) / f"inpaint_seed_{int(seed):04d}.npz"
+    if not p.exists():
+        return None
+    d = np.load(p)
+    return {k: np.asarray(d[k]) for k in ("ra", "dec", "z", "prov")}
+
+
+def _build_method_realizations(data_dir, pkg, method_id, seeds, n_obs, n_base, inpaint_dir=None):
     """Draw the per-seed realizations for one engine/method and write its chunks
-    under ``methods/<method_id>/``. Returns the manifest realization list."""
+    under ``methods/<method_id>/``. Returns the manifest realization list. When
+    ``inpaint_dir`` is given, the seed's inpaint galaxies (PROV=5, the contiguous
+    interior fill) are appended to the per-seed ``extra_*`` channel."""
     realizations = []
     for seed in seeds:
         cat = draw(pkg, seed=int(seed), systot=True)
         z_miss = np.asarray(cat["z"][n_obs:n_base], dtype=np.float32)
-        extra_slice = slice(n_base, int(cat["N"]))
-        extra_count = int(cat["N"] - n_base)
+        ex = slice(n_base, int(cat["N"]))
+        ex_ra, ex_dec = np.asarray(cat["ra"][ex]), np.asarray(cat["dec"][ex])
+        ex_z, ex_prov = np.asarray(cat["z"][ex]), np.asarray(cat["prov"][ex])
+        ip = _load_inpaint(inpaint_dir, seed)
+        if ip is not None:                                  # append the contiguous fill
+            ex_ra = np.concatenate([ex_ra, ip["ra"]])
+            ex_dec = np.concatenate([ex_dec, ip["dec"]])
+            ex_z = np.concatenate([ex_z, ip["z"]])
+            ex_prov = np.concatenate([ex_prov, ip["prov"]])
+        extra_count = int(len(ex_ra))
         prefix = f"methods/{method_id}/seed-{int(seed):04d}"
         chunks = {
             "missing_z": _write_array(data_dir, f"{prefix}/missing_z.f32.bin", z_miss, "<f4"),
-            "extra_ra": _write_array(data_dir, f"{prefix}/extra_ra.f32.bin", cat["ra"][extra_slice], "<f4"),
-            "extra_dec": _write_array(data_dir, f"{prefix}/extra_dec.f32.bin", cat["dec"][extra_slice], "<f4"),
-            "extra_z": _write_array(data_dir, f"{prefix}/extra_z.f32.bin", cat["z"][extra_slice], "<f4"),
+            "extra_ra": _write_array(data_dir, f"{prefix}/extra_ra.f32.bin", ex_ra, "<f4"),
+            "extra_dec": _write_array(data_dir, f"{prefix}/extra_dec.f32.bin", ex_dec, "<f4"),
+            "extra_z": _write_array(data_dir, f"{prefix}/extra_z.f32.bin", ex_z, "<f4"),
             "extra_provenance": _write_array(
                 data_dir, f"{prefix}/extra_provenance.u8.bin",
-                np.asarray(cat["prov"][extra_slice], dtype=np.uint8), "u1"),
+                ex_prov.astype(np.uint8), "u1"),
         }
-        counts = dict(zip(*[a.tolist() for a in np.unique(cat["prov"], return_counts=True)]))
+        all_prov = np.concatenate([np.asarray(cat["prov"])[:n_base], ex_prov])
+        counts = dict(zip(*[a.tolist() for a in np.unique(all_prov, return_counts=True)]))
         realizations.append({
             "id": f"seed-{int(seed):04d}", "label": f"seed {int(seed)}", "seed": int(seed),
-            "total_count": int(cat["N"]), "base_count": n_base, "extra_count": extra_count,
+            "total_count": int(n_base + extra_count), "base_count": n_base, "extra_count": extra_count,
             "provenance_counts": {str(k): int(v) for k, v in sorted(counts.items())},
             "chunks": chunks,
         })
@@ -207,6 +230,7 @@ def build_viewer_bundle(
     extra_methods: list | None = None,
     seeds: list[int] | tuple[int, ...] = (0, 1, 2, 3),
     enriched_npz: Path | None = None,
+    default_method: str = "knn-field",
 ) -> Path:
     out = Path(out)
     source = Path(source)
@@ -266,14 +290,17 @@ def build_viewer_bundle(
     # engine) — each from its own posterior package over the SAME observed+missing
     # base, so the viewer overlays them and you can switch engine to compare.
     for spec in (extra_methods or []):
-        mpkg = load_package(spec["package"])
+        # a method draws its base from its own package (default: the primary one) and
+        # optionally appends per-seed inpaint galaxies (the contiguous interior fill).
+        mpkg = load_package(spec["package"]) if spec.get("package") else pkg
         if int(mpkg["n_obs"]) != n_obs or int(mpkg["n_miss"]) != n_miss:
             raise ValueError(f"method {spec['id']!r} package base "
                              f"({mpkg['n_obs']}+{mpkg['n_miss']}) != primary ({n_obs}+{n_miss})")
         methods.append({
             "id": spec["id"], "label": spec["label"],
             "description": spec.get("description", ""),
-            "realizations": _build_method_realizations(data_dir, mpkg, spec["id"], seeds, n_obs, n_base),
+            "realizations": _build_method_realizations(data_dir, mpkg, spec["id"], seeds, n_obs,
+                                                       n_base, inpaint_dir=spec.get("inpaint_dir")),
         })
     realizations = methods[0]["realizations"]
 
@@ -324,7 +351,7 @@ def build_viewer_bundle(
             "columns_added": enriched_columns,
         },
         "default_view": {
-            "method_id": "knn-field",
+            "method_id": default_method if any(m["id"] == default_method for m in methods) else "knn-field",
             "realization_id": realizations[0]["id"],
             "coordinate_mode": "comoving",
             "projection": "3d",
@@ -356,6 +383,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
              "generative:Generative (non-Gaussian):data_release/cmass_south_posterior_generative.npz "
              "(repeatable; must share the same observed+missing base as --package)",
     )
+    p.add_argument(
+        "--inpaint-method", action="append", default=[], metavar="id:label:inpaint_dir",
+        help="add a contiguous method whose per-seed inpaint galaxies (PROV=5, the "
+             "interior fill) come from inpaint_dir/inpaint_seed_*.npz over the primary base, "
+             "e.g. contiguous:Contiguous (no inner holes):data_release/contiguous",
+    )
+    p.add_argument("--default-method", default="knn-field",
+                   help="method_id shown by default in the viewer (e.g. 'contiguous')")
     return p.parse_args(argv)
 
 
@@ -366,9 +401,20 @@ def _parse_method_spec(spec: str) -> dict:
     return {"id": parts[0], "label": parts[1], "package": Path(":".join(parts[2:]))}
 
 
+def _parse_inpaint_spec(spec: str) -> dict:
+    parts = spec.split(":")
+    if len(parts) < 3:
+        raise ValueError(f"--inpaint-method must be id:label:inpaint_dir, got {spec!r}")
+    return {"id": parts[0], "label": parts[1], "package": None,
+            "inpaint_dir": ":".join(parts[2:]),
+            "description": "Fully-contiguous catalog: every interior veto hole inpainted with "
+                           "the data-driven non-Gaussian field (PROV=5); only the outer boundary remains."}
+
+
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     extra_methods = [_parse_method_spec(s) for s in args.method]
+    extra_methods += [_parse_inpaint_spec(s) for s in args.inpaint_method]
     manifest_path = build_viewer_bundle(
         package=args.package,
         source=args.source,
@@ -376,6 +422,7 @@ def main(argv: list[str] | None = None) -> None:
         seeds=args.seeds,
         enriched_npz=args.enriched_npz,
         extra_methods=extra_methods,
+        default_method=args.default_method,
     )
     print(f"wrote {manifest_path}")
 

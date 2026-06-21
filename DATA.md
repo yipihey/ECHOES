@@ -99,6 +99,34 @@ Gate scripts (all under `validation/`): `transform_probe.py` (kNN-CDF / CiC),
 (calibration), `sp_weight_baseline.py` (ISD vs NN). The generative engine stays
 **off by default** until adopted for a release.
 
+### Fully-contiguous product (every interior hole painted in)
+
+For consumers of **hole-sensitive** statistics (topology, kNN, field-level) the
+default masked footprint is unusable — those statistics break at interior holes. A
+**contiguous** product fills *every* interior veto hole with the data-driven
+non-Gaussian field so the catalog has only the survey's **outer boundary, no inner
+holes** (`pipeline/build_contiguous_release.py`; built on a topological footprint,
+`echoes.fill_footprint.build_fill_footprint(contiguous=True)`).
+
+- `data_release/contiguous/inpaint_seed_*.npz` — the per-seed inpaint galaxies
+  (PROV=5; ~7,100 each, filling 121 deg² of holes at the parent density ≈55/deg²,
+  with cosmic-web texture, not flat). The only seed-varying part.
+- `data_release/cmass_south_randoms_contiguous.npz` — uniform randoms over the
+  **filled** footprint. **The contiguous catalog must be paired with these randoms**
+  (not the masked ones) so data and randoms treat the filled regions identically.
+
+The contiguous catalog for a seed = `draw(cmass_south_posterior.npz, seed)` + that
+seed's `inpaint_seed_*.npz`. In the **visualizer**, switch the method dropdown to
+**"Contiguous (no inner holes)"** (the default view) to see the gap-free interior;
+inpaint galaxies render in teal (PROV=5).
+
+**Tradeoff (honest):** masking a small hole and masking the randoms there cancels it
+*exactly* — optimal for 2-point clustering. Filling it is necessary for hole-sensitive
+statistics but adds a small 2-point penalty (bounded; controlled by the matching
+filled randoms). The masked completion product remains available for pure 2-point
+work. Prior-dominated fills (deep holes where the field reverts to the mean) carry a
+high `uncert`/`IS_PRIOR_FILL` flag — down-weight `uncert ≥ 0.5` for conservative use.
+
 ---
 
 ## 2. Public input data (large; download from the archives)

@@ -74,6 +74,11 @@ redshift-failure · `3` imaging-systematic analog · `4` zhost-fallback.
   validated), while staying rank-preserving (calibration intact) and SP-clean.
   `pipeline/build_release.py --engine generative`. Scope, gates, and the
   residual-systematic caveat are in [`DATA.md`](DATA.md) §1b.
+- **contiguous (no inner holes):** paints in **every** interior veto hole with the
+  data-driven non-Gaussian field so the catalog has only the survey's outer boundary —
+  what topological / kNN / field-level statistics need. Pair with the matching filled
+  randoms. `pipeline/build_contiguous_release.py`; it is the visualizer's default view.
+  See [`DATA.md`](DATA.md) §1b for the 2-point tradeoff and the `uncert` guard.
 
 ## Repository layout
 ```

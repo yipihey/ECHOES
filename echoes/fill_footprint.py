@@ -114,6 +114,43 @@ def _connected_components(pix_bool, nside):
     return comps
 
 
+def _fill_interior_holes(mask_bool, nside, *, margin=24):
+    """Fill interior holes of a HEALPix mask, leaving only its outer boundary.
+
+    Vectorised flood-fill of the EXTERIOR through empty pixels, restricted to a local
+    band (the mask dilated by ``margin`` rings) so the cost scales with the survey
+    patch, not the whole sphere. Empty pixels inside the band that the exterior flood
+    cannot reach are enclosed **interior holes** (any size up to ~``margin`` rings) and
+    are merged into the mask — the topological, size-independent alternative to
+    morphological closing. (A truly huge interior gap > ``margin`` rings is treated as
+    a genuinely excluded region, honouring the integrity guard.)"""
+    import healpy as hp
+    m = np.asarray(mask_bool, bool)
+    band = _dilate(m, nside, margin)
+    empty = band & ~m
+    if not empty.any():
+        return m.copy()
+    nb = hp.get_all_neighbours(nside, np.arange(len(m)))   # (8, npix)
+    not_band = ~band
+    # seed the exterior at empty pixels on the band's outer rim (adjacent to outside)
+    exterior = np.zeros(len(m), bool)
+    for k in range(8):
+        v = nb[k] >= 0
+        exterior[v] |= not_band[nb[k][v]]
+    exterior &= empty
+    # iteratively grow the exterior inward through connected empty pixels
+    while True:
+        grown = exterior.copy()
+        for k in range(8):
+            v = nb[k] >= 0
+            grown[v] |= exterior[nb[k][v]]
+        grown &= empty
+        if int(grown.sum()) == int(exterior.sum()):
+            break
+        exterior = grown
+    return m | (empty & ~exterior)                         # unreached empties = holes
+
+
 def _geometry_mask(nside, *, mangle_npy=None, mangle_ply=None):
     """Boolean HEALPix occupancy of the BOSS mangle GEOMETRY footprint, or None if
     no mangle source is available. Prefers the cached uniform-geometry randoms."""
@@ -160,13 +197,22 @@ def _proximity_clip(geom_bool, ra_random, dec_random, nside, lss_clip_deg):
 def build_fill_footprint(catalog=None, *, ra_random=None, dec_random=None, z_data=None,
                          nside=512, mangle_ply="data/boss/mask_DR12v5_CMASS_South.ply",
                          mangle_npy=DEFAULT_MANGLE_NPY, lss_clip_deg=1.0,
-                         empty_thresh=0.2, min_fill_deg2=2.0, n_z=64) -> FillFootprint:
+                         empty_thresh=0.2, min_fill_deg2=2.0, n_z=64,
+                         contiguous=False) -> FillFootprint:
     """Build the :class:`FillFootprint` for a survey.
 
     Accepts either a loaded ``catalog`` (uses ``ra_random``/``dec_random``/``z_data``)
     or those arrays directly (for tests). ``lss_clip_deg`` bounds the fill to within
     that angular distance of real data (integrity guard); raise it to fill larger
     interior gaps, lower it to be more conservative.
+
+    ``contiguous`` (the fully-completed product): take the survey's outer boundary
+    (the mangle GEOMETRY, proximity-clipped to data) and **fill every interior hole
+    regardless of size** (:func:`_fill_interior_holes`), then fill **all** un-observed
+    pixels inside it (forces ``min_fill_deg2=0`` and ``empty_thresh→0``). The result
+    has only the outer boundary — no interior holes. Trades a small 2-point penalty
+    (masking small holes is exact) for a gap-free field that topological / kNN /
+    field-level statistics need; pair with randoms over the same ``target_mask``.
     """
     import healpy as hp
     if catalog is not None:
@@ -192,6 +238,14 @@ def build_fill_footprint(catalog=None, *, ra_random=None, dec_random=None, z_dat
         geom_near = _proximity_clip(geom, ra_random, dec_random, nside, lss_clip_deg)
         target_mask = target_mask & geom_near                  # trim only; never extend
     target_mask = target_mask | cover_bool                     # always keep covered pixels
+
+    if contiguous:
+        # FULLY-CONTIGUOUS footprint: base on the survey outer boundary (the geometry
+        # near the data, else the closing) and fill EVERY interior hole, any size.
+        base = geom_near if geom is not None else target_mask
+        target_mask = _fill_interior_holes(base | cover_bool, nside)
+        min_fill_deg2 = 0.0                                    # fill all components
+        empty_thresh = 0.0                                     # every un-observed pixel
 
     # Fill ONLY genuine zero-coverage pixels (binary). Partial-completeness rim pixels are
     # NOT filled: at a real hole boundary they still contain galaxies, so filling them would
