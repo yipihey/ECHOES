@@ -116,7 +116,31 @@ of galaxies in overdensities) — galaxies trace the reconstruction, as they mus
 field = **Manticore** (equatorial frame); 2M++ supplies the dense galaxy catalogue; CF4 supplies
 direct distances for the sparse distance tracers + an independent velocity check.
 
-## Open decisions (resolved 2026-06-22: 2M++ galaxies + CF4 distances; Manticore field; supergalactic frame)
+## P2/P3 — the true-3D completion engine (shipped)
+
+`echoes/local_completion.py` completes the local catalogue in true 3D by conditioning on the
+Manticore field: in the unobserved volume (the **Zone of Avoidance**, |b|<5°) it Poisson-samples
+galaxies from `λ ∝ n̄(d)·(1+δ)^b / ⟨(1+δ)^b⟩_shell` — **mass-conserving per distance shell** (the
+fill reaches the all-sky mean density `n̄(d)` from the observed galaxies), modulated by the
+reconstructed structure, with the galaxy-bias exponent `b` **auto-calibrated** so the fill traces
+the field with the same mean over-density as the observed galaxies (faithful, not the
+over-concentrated mass field). Filled galaxies carry PROV=5, true distances, a `cz` from
+`H0·d + v·n̂`, and **distance-matched K-band magnitudes** (the flux-limited luminosity preserved).
+
+`complete_local_ensemble` / `pipeline/build_local_release.py` runs one completion per Manticore
+realization → the posterior product `data_release/local/`: the observed 2M++ base + a per-realization
+ZoA completion. Demonstrator (3 realizations, d<300 Mpc): observed 67,966 galaxies + ~11,250–11,360
+ZoA galaxies each (the spread across realizations is the reconstruction uncertainty); the fill
+matches the observed luminosity (Ks≈11.7) and clustering (mean 1+δ ≈ 1.6 vs observed 2.2), in true
+3D, tracing the structures behind the Milky Way (the Great Attractor region etc.). This **composes
+the two posterior ensembles** — Manticore's field posterior with the catalogue completion.
+
+Next refinements: radial flux-limit completion (restore faint galaxies at large d, not just the
+ZoA); a luminosity-function `n̄(d)` instead of the empirical shell estimate; per-galaxy `uncert`
+(ZoA fills are field-constrained, not prior-dominated, but still less certain than observed); a
+true-3D viewer. P2/P3 deliver the core engine + product.
+
+## Open decisions (resolved 2026-06-22: 2M++ galaxies + CF4 distances; Manticore field; **equatorial** frame)
 
 1. **Anchor galaxy catalog:** 2M++ (Manticore's own input; near-full-sky, ZoA-masked) vs the
    CF4 distance sample vs 2MRS. Recommendation: 2M++ for the catalog + CF4 for real distances,

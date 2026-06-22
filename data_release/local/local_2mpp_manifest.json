@@ -1,0 +1,25 @@
+{
+  "product": "local_2mpp_true3d",
+  "description": "True-3D ECHOES of the local neighbourhood: 2M++ at Manticore peculiar-velocity distances + a per-realization Zone-of-Avoidance completion drawn from each Manticore posterior density field.",
+  "frame": "equatorial comoving [Mpc]",
+  "H0": 68.1,
+  "dmax_mpc": 300.0,
+  "zoa_deg": 5.0,
+  "base": "local_2mpp_observed.npz",
+  "n_observed": 67966,
+  "realizations": [
+    {
+      "mcmc": 0,
+      "n_zoa_inpaint": 11250
+    },
+    {
+      "mcmc": 1,
+      "n_zoa_inpaint": 11286
+    },
+    {
+      "mcmc": 2,
+      "n_zoa_inpaint": 11358
+    }
+  ],
+  "note": "Completed catalog(realization i) = observed + local_2mpp_zoa_mcmc<i>.npz. PROV 0=observed, 5=ZoA-inpaint. The ensemble over realizations carries the Manticore reconstruction's posterior uncertainty."
+}

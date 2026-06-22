@@ -44,6 +44,7 @@ class LocalCatalog:
     w_sys_data: np.ndarray = None
     w_cp_data: np.ndarray = None
     w_noz_data: np.ndarray = None
+    ksmag_data: np.ndarray = None       # 2MASS K_s apparent magnitude (2M++ line)
     source: str = "cf4"
     frame: str = "supergalactic"        # comoving frame of xyz_data ('equatorial' for the Manticore line)
 
@@ -139,7 +140,7 @@ def load_local_2mpp(field_mcmc=0, H0=68.1, nside=64, zoa_deg=5.0, dmax_mpc=400.0
 
     c = read_2mpp()
     keep = (c.vcmb / H0) < dmax_mpc
-    ra, dec, vcmb = c.ra[keep], c.dec[keep], c.vcmb[keep]
+    ra, dec, vcmb, ksmag = c.ra[keep], c.dec[keep], c.vcmb[keep], c.ksmag[keep]
     fc = manticore_field_context(field_mcmc)
     dist = field_corrected_distance(ra, dec, vcmb, fc, H0=H0)        # Manticore-corrected
     xyz = (dist[:, None] * _equatorial_unit(ra, dec)).astype(np.float32)   # equatorial comoving
@@ -168,4 +169,5 @@ def load_local_2mpp(field_mcmc=0, H0=68.1, nside=64, zoa_deg=5.0, dmax_mpc=400.0
         ra_random=rra.astype(np.float32), dec_random=rdec.astype(np.float32), z_random=rz,
         sel_map=sel, nside=nside, xyz_data=xyz, dist_mpc=dist,
         w_sys_data=np.ones(n, np.float32), w_cp_data=np.ones(n, np.float32),
-        w_noz_data=np.ones(n, np.float32), source="2mpp", frame="equatorial")
+        w_noz_data=np.ones(n, np.float32), ksmag_data=ksmag.astype(np.float32),
+        source="2mpp", frame="equatorial")

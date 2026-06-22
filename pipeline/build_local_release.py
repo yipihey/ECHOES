@@ -1,0 +1,77 @@
+"""Build the true-3D local-neighborhood ECHOES product (branch data/local-neighborhood).
+
+The observed 2M++ catalogue (placed at true comoving distances via the Manticore peculiar-
+velocity field) plus, for each Manticore posterior realization, a Zone-of-Avoidance completion
+that fills the Galactic-plane hole with galaxies drawn from that realization's reconstructed 3D
+density. The ensemble over realizations is the posterior product: the reconstruction's field
+ensemble composed with the catalogue completion.
+
+Writes to ``data_release/local/``:
+  local_2mpp_observed.npz        observed 2M++ at true-3D positions (shared base; written once)
+  local_2mpp_zoa_mcmc<i>.npz     per-realization ZoA completion (PROV=5; the seed-varying part)
+  local_2mpp_manifest.json       realizations, counts, parameters
+
+A completed catalog for realization i = observed + zoa_mcmc<i>. Equatorial comoving frame.
+
+    JAX_PLATFORMS=cpu python pipeline/build_local_release.py --realizations 0 1 2
+"""
+import argparse, json, os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import numpy as np
+
+from echoes.surveys.local import load_local_2mpp
+from echoes.surveys.manticore import available_realizations, manticore_field_context
+from echoes.local_completion import complete_local_zoa
+
+OUT = os.path.join("data_release", "local")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--realizations", type=int, nargs="+", default=None,
+                    help="Manticore mcmc indices (default: all locally fetched)")
+    ap.add_argument("--dmax", type=float, default=300.0, help="max distance [Mpc]")
+    ap.add_argument("--zoa-deg", type=float, default=5.0)
+    args = ap.parse_args()
+    os.makedirs(OUT, exist_ok=True)
+    reals = args.realizations or available_realizations()
+    if not reals:
+        raise SystemExit("no Manticore realizations fetched — run data/fetch_manticore.py")
+
+    cat = load_local_2mpp(field_mcmc=reals[0], dmax_mpc=args.dmax)
+    obs_path = os.path.join(OUT, "local_2mpp_observed.npz")
+    np.savez_compressed(obs_path, ra=cat.ra_data, dec=cat.dec_data, dist_mpc=cat.dist_mpc,
+                        cz=(cat.z_data * 299792.458).astype(np.float32), ksmag=cat.ksmag_data,
+                        prov=np.zeros(cat.N_data, np.int8))
+    print(f"observed 2M++: {cat.N_data:,} galaxies -> {os.path.basename(obs_path)}", flush=True)
+
+    meta = []
+    for m in reals:
+        fc = manticore_field_context(m)
+        ip = complete_local_zoa(cat, fc, zoa_deg=args.zoa_deg, dmax=args.dmax, seed=1000 + m)
+        p = os.path.join(OUT, f"local_2mpp_zoa_mcmc{m}.npz")
+        np.savez_compressed(p, ra=ip["ra"], dec=ip["dec"], dist_mpc=ip["dist_mpc"],
+                            cz=ip["cz"], ksmag=ip["ksmag"], prov=ip["prov"])
+        meta.append({"mcmc": int(m), "n_zoa_inpaint": int(len(ip["ra"]))})
+        print(f"  mcmc{m}: +{len(ip['ra']):,} ZoA galaxies -> {os.path.basename(p)}", flush=True)
+
+    manifest = {
+        "product": "local_2mpp_true3d",
+        "description": "True-3D ECHOES of the local neighbourhood: 2M++ at Manticore "
+                       "peculiar-velocity distances + a per-realization Zone-of-Avoidance "
+                       "completion drawn from each Manticore posterior density field.",
+        "frame": "equatorial comoving [Mpc]", "H0": 68.1, "dmax_mpc": args.dmax,
+        "zoa_deg": args.zoa_deg, "base": "local_2mpp_observed.npz",
+        "n_observed": int(cat.N_data), "realizations": meta,
+        "note": "Completed catalog(realization i) = observed + local_2mpp_zoa_mcmc<i>.npz. "
+                "PROV 0=observed, 5=ZoA-inpaint. The ensemble over realizations carries the "
+                "Manticore reconstruction's posterior uncertainty.",
+    }
+    with open(os.path.join(OUT, "local_2mpp_manifest.json"), "w") as f:
+        json.dump(manifest, f, indent=2)
+    print(f"\nwrote {OUT}/ ({len(reals)} realizations); "
+          f"completed catalog(i) = observed + zoa_mcmc<i>.")
+
+
+if __name__ == "__main__":
+    main()
