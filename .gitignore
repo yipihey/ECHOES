@@ -6,6 +6,9 @@ dist/
 .ipynb_checkpoints/
 # local data + caches (fetched via data/fetch_*.py; see DATA.md)
 /data/boss
+# local-neighborhood reconstructions (CF4/BORG/Manticore; fetched via data/fetch_cf4.py etc.)
+data/local/*
+!data/local/README.md
 /output/
 # latex build artifacts
 paper/*.aux
