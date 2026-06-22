@@ -27,6 +27,15 @@ recovers truth and halves the failure-induced magnitude bias). Mags are uint16-q
 (~3e-4 mag) with a per-band NaN sentinel; the frequently-negative u flux is kept as NaN while
 g/r/i/z stay finite.
 
+**Rest-frame absolute magnitudes and stellar mass** are *derived on demand* from the carried
+photometry + redshift via an SED fit (`echoes.derived.add_derived`; `echoes-draw --derived`;
+needs the optional `kcorrect` dependency). They are not stored in the package — the redshift
+varies per realization, and because `P(ugriz|z)` already matches the truth, any deterministic
+function of `(mags, z)` (so `M_i`, `log M*`) reproduces the truth at each redshift by
+construction (`validation/property_recovery.py --derived`: `M_i` and `log M*` KS p ≈ 1.0 vs
+truth; CMASS values M_i ≈ −23.7, log M* ≈ 11.4). Only the absolute-magnitude distance modulus
+uses a fiducial cosmology.
+
 The missing redshifts are drawn through a **field-correlation copula** (low-rank modes
 of the measured ξ(r) correlation, stored in the package): the draw carries the coherent
 cross-object dependence of the density field, so the large-scale **completion covariance**

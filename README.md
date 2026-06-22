@@ -77,6 +77,20 @@ and a redshift-matched real-galaxy transplant for synthetic galaxies, so the com
 galaxy **populations match the true observed ones at each redshift**
 (`validation/property_recovery.py`).
 
+**Derived properties** (rest-frame absolute magnitudes + stellar mass) follow from the
+photometry and redshift via an SED fit:
+```bash
+pip install "echoes[derived] @ git+https://github.com/yipihey/ECHOES.git"   # kcorrect
+echoes-draw --seed 0 --derived --out catalog_0.npz     # adds absmag (ugriz) + logmass
+```
+```python
+from echoes.derived import add_derived
+add_derived(cat)                  # cat['absmag'] (N,5 rest-frame), cat['logmass'] (log10 M*/Msun)
+```
+Because they are deterministic functions of the already-matched `(mags, z)`, `P(M_i|z)` and
+`P(log M*|z)` of the completed catalog reproduce the truth at each redshift by construction
+(verified, `property_recovery.py --derived`).
+
 ### Joint dependence (optional copula)
 By default each missing redshift is drawn from its own posterior **independently** —
 correct per object, but it under-disperses the *coherent* large-scale completion

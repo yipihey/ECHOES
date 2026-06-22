@@ -30,6 +30,8 @@ fits = ["astropy>=5.3"]
 pipeline = ["scipy>=1.10", "astropy>=5.3", "healpy>=1.16", "matplotlib>=3.7", "numba>=0.58"]
 # Standard projected/multipole clustering measurements (Corrfunc).
 clustering = ["scipy>=1.10", "astropy>=5.3", "Corrfunc>=2.5", "numba>=0.58"]
+# Derived rest-frame absolute magnitudes + stellar masses (echoes.derived; SED fit).
+derived = ["kcorrect>=5.1"]
 # graphGP conditional-field engine (optional, correlated posterior).
 graphgp = [
   "scipy>=1.10", "astropy>=5.3", "healpy>=1.16",

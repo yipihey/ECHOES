@@ -87,11 +87,15 @@ def draw_main(argv=None):
     p.add_argument("--out", default="catalog.npz", help="output path for a single realization")
     p.add_argument("--out-prefix", default="catalog_", help="prefix for --n>1 (<prefix><seed>.npz)")
     p.add_argument("--no-systot", action="store_true")
+    p.add_argument("--derived", action="store_true",
+                   help="also compute rest-frame absolute mags + log10 stellar mass via "
+                        "kcorrect (echoes.derived; needs `pip install kcorrect`)")
     args = p.parse_args(argv)
     pkg = load_package(_resolve_package(args.package))
 
     def write(cat, path):
-        keys = [k for k in ("ra", "dec", "z", "prov", "mags", "colors", "colors_finite") if k in cat]
+        keys = [k for k in ("ra", "dec", "z", "prov", "mags", "colors", "colors_finite",
+                            "absmag", "logmass") if k in cat]
         if path.endswith(".fits"):
             try:
                 from astropy.table import Table
@@ -103,6 +107,8 @@ def draw_main(argv=None):
             if "mags" in cat:
                 tab["MODELMAG"] = cat["mags"]; tab["COLOR"] = cat["colors"]
                 tab["COLORS_FINITE"] = cat["colors_finite"]
+            if "absmag" in cat:
+                tab["ABSMAG"] = cat["absmag"]; tab["LOGMASS"] = cat["logmass"]
             Table(tab).write(path, overwrite=True)
         else:
             import numpy as np
@@ -111,6 +117,9 @@ def draw_main(argv=None):
     seeds = range(args.seed, args.seed + args.n)
     for s in seeds:
         cat = draw(pkg, seed=s, systot=not args.no_systot)
+        if args.derived:
+            from .derived import add_derived
+            add_derived(cat)
         out = args.out if args.n == 1 else f"{args.out_prefix}{s}.npz"
         write(cat, out)
         print(f"seed {s}: {cat['N']:,} galaxies -> {out}")
