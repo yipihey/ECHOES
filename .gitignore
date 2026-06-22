@@ -24,3 +24,6 @@ paper/*Notes.bib
 
 # BOSS veto mangle masks (~1GB, downloaded from SDSS SAS; cached analytic selection is committed instead)
 data/boss/veto/
+
+# local-neighborhood completed catalogs (regenerable via pipeline/build_local_release.py; large in full mode)
+data_release/local/*.npz

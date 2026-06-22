@@ -1,25 +1,31 @@
 {
-  "product": "local_2mpp_true3d",
-  "description": "True-3D ECHOES of the local neighbourhood: 2M++ at Manticore peculiar-velocity distances + a per-realization Zone-of-Avoidance completion drawn from each Manticore posterior density field.",
+  "product": "local_2mpp_true3d_full",
+  "description": "True-3D ECHOES of the local neighbourhood: 2M++ at Manticore peculiar-velocity distances + a per-realization completion drawn from each Manticore posterior density field. mode='full' also restores the faint galaxies below the flux limit everywhere (volume-limited to m_faint).",
+  "mode": "full",
   "frame": "equatorial comoving [Mpc]",
   "H0": 68.1,
   "dmax_mpc": 300.0,
   "zoa_deg": 5.0,
+  "m_faint": -22.0,
+  "k_lim": 11.5,
   "base": "local_2mpp_observed.npz",
   "n_observed": 67966,
   "realizations": [
     {
       "mcmc": 0,
-      "n_zoa_inpaint": 11250
+      "n_inpaint": 963210,
+      "file": "local_2mpp_full_mcmc0.npz"
     },
     {
       "mcmc": 1,
-      "n_zoa_inpaint": 11286
+      "n_inpaint": 961471,
+      "file": "local_2mpp_full_mcmc1.npz"
     },
     {
       "mcmc": 2,
-      "n_zoa_inpaint": 11358
+      "n_inpaint": 962338,
+      "file": "local_2mpp_full_mcmc2.npz"
     }
   ],
-  "note": "Completed catalog(realization i) = observed + local_2mpp_zoa_mcmc<i>.npz. PROV 0=observed, 5=ZoA-inpaint. The ensemble over realizations carries the Manticore reconstruction's posterior uncertainty."
+  "note": "Completed catalog(realization i) = observed + local_2mpp_<mode>_mcmc<i>.npz. PROV 0=observed, 5=inpaint; full mode adds absmag/uncert/kind(zoa|faint). The ensemble over realizations carries the Manticore reconstruction's posterior uncertainty; per-galaxy uncert is the ensemble field scatter."
 }

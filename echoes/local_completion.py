@@ -142,6 +142,131 @@ def complete_local_zoa(cat, field, *, zoa_deg=5.0, dmin=5.0, dmax=300.0, n_dbin=
             "prov": np.full(n, PROV_INPAINT, np.int8)}
 
 
+def absolute_mag(kmag, dist_mpc, H0=68.1, kcorr=True):
+    """K-band absolute magnitude: ``M = K − 5log10(d/Mpc) − 25 − k(z)``. The K-band
+    k-correction at z<0.1 is small; ``k(z) ≈ −6·log10(1+z)`` (Kochanek+ 2001 form)."""
+    d = np.asarray(dist_mpc, float)
+    M = np.asarray(kmag, float) - 5.0 * np.log10(np.maximum(d, 1e-3)) - 25.0
+    if kcorr:
+        z = np.clip(H0 * d / 299792.458, 0.0, 0.3)
+        M += 6.0 * np.log10(1.0 + z)        # subtract k(z)=-6log(1+z)  ->  M -= k  ->  M += 6log(1+z)
+    return M
+
+
+def estimate_lf(cat, m_faint, k_lim, f_sky, H0=68.1, m_bright=-25.5):
+    """Data-driven K-band luminosity function from the OBSERVED galaxies (no Schechter fit).
+
+    Returns ``(nbar0, sorted_absmag, d_complete)``: the comoving number density of galaxies in
+    ``[m_bright, m_faint]`` (estimated in the nearby volume where ``m_faint`` is fully
+    observable), and the sorted absolute magnitudes to draw from. ``m_bright`` clips the
+    spurious super-bright tail (distance-error outliers brighter than any real galaxy)."""
+    M = absolute_mag(cat.ksmag_data, cat.dist_mpc, H0=H0)
+    d_complete = 10.0 ** ((k_lim - m_faint - 25.0) / 5.0)        # m_faint observable within this d
+    near = (cat.dist_mpc < d_complete) & np.isfinite(M) & (M < m_faint) & (M > m_bright)
+    vol = 4.0 / 3.0 * np.pi * d_complete ** 3 * max(f_sky, 1e-6)
+    nbar0 = near.sum() / max(vol, 1e-9)
+    return nbar0, np.sort(M[near]), d_complete
+
+
+def complete_local(cat, field, *, m_faint=-21.0, k_lim=11.5, zoa_deg=5.0, dmin=5.0, dmax=300.0,
+                   n_dbin=40, bias=None, uncert_fields=None, seed=0, H0=68.1):
+    """Full true-3D completion: fills the **Zone of Avoidance** AND restores the **faint
+    galaxies below the flux limit everywhere**, to a uniform volume-limited density to
+    ``m_faint`` modulated by the Manticore field.
+
+    Per voxel the missing density is ``n̄0 · (1 − f_obs(d)·observed_sky) · (1+δ)^b_norm``, where
+    ``f_obs(d)`` is the fraction of the LF brighter than the flux limit at distance d, ``n̄0`` the
+    volume-limited density to ``m_faint`` (data-driven LF), and ``observed_sky`` is 0 in the ZoA.
+    Restored galaxies draw absolute mags from the LF fainter than the local limit and carry an
+    apparent ``K = M + DM(d)``, a ``cz``, a PROV=5, a ``kind`` (zoa/faint), and a per-galaxy
+    ``uncert`` (see :func:`completion_uncert`)."""
+    import healpy as hp
+    rng = np.random.default_rng(seed)
+    f_sky = float((cat.sel_map > 0).mean())
+    edges = np.linspace(dmin, dmax, n_dbin + 1)
+    nbar0, lf_M, _ = estimate_lf(cat, m_faint, k_lim, f_sky, H0=H0)
+
+    N = field.nvox; L = field.box_mpc; vox = L / N
+    ax = ((np.arange(N) + 0.5) / N * L - L / 2).astype(np.float32)
+    X, Y, Z = np.meshgrid(ax, ax, ax, indexing="ij")
+    d = np.sqrt(X * X + Y * Y + Z * Z)
+    shell = (d >= dmin) & (d <= dmax)
+    xs, ys, zs, ds = X[shell], Y[shell], Z[shell], d[shell]
+    o = np.clip(field.delta[shell].astype(np.float64), 0.0, None)
+    ra = np.degrees(np.arctan2(ys, xs)) % 360.0
+    dec = np.degrees(np.arcsin(np.clip(zs / ds, -1.0, 1.0)))
+    bgal = galactic_b(ra, dec)
+    in_zoa = np.abs(bgal) < zoa_deg
+    obs_sky = (cat.sel_map[hp.ang2pix(cat.nside, np.radians(90 - dec), np.radians(ra))] > 0)
+
+    # fraction observed at distance d (brighter than the flux limit), and the missing fraction
+    m_lim = k_lim - 5.0 * np.log10(np.maximum(ds, 1e-3)) - 25.0
+    f_obs = np.searchsorted(lf_M, m_lim, side="right") / max(len(lf_M), 1)   # frac of LF brighter
+    missing = 1.0 - np.clip(f_obs, 0.0, 1.0) * (obs_sky & ~in_zoa)
+
+    # field modulation: bias-calibrated to the observed galaxy-field relation, mean-1 per shell
+    if bias is None:
+        target = float(field.overdensity_at(cat.xyz_data[cat.dist_mpc <= dmax]).mean())
+        bias = _calibrate_bias(o[missing > 0], target)
+    mod = o ** bias
+    ibin = np.clip(np.searchsorted(edges, ds) - 1, 0, n_dbin - 1)
+    bmean = (np.bincount(ibin, weights=mod, minlength=n_dbin)
+             / np.maximum(np.bincount(ibin, minlength=n_dbin), 1))[ibin]
+    lam = nbar0 * missing * (mod / np.maximum(bmean, 1e-30)) * vox ** 3
+    counts = rng.poisson(np.clip(lam, 0.0, None))
+    occ = counts > 0
+    if not occ.any():
+        return _empty_completion()
+
+    src = np.repeat(np.where(occ)[0], counts[occ])
+    n = len(src)
+    jit = (rng.random((n, 3)) - 0.5) * vox
+    px, py, pz = xs[src] + jit[:, 0], ys[src] + jit[:, 1], zs[src] + jit[:, 2]
+    dist = np.sqrt(px * px + py * py + pz * pz).astype(np.float32)
+    nra = (np.degrees(np.arctan2(py, px)) % 360.0).astype(np.float32)
+    ndec = np.degrees(np.arcsin(np.clip(pz / dist, -1.0, 1.0))).astype(np.float32)
+    nhat = np.column_stack([px, py, pz]) / dist[:, None]
+    vr = np.einsum("ij,ij->i", field.velocity_at(np.column_stack([px, py, pz])), nhat)
+    cz = (H0 * dist + vr).astype(np.float32)
+    is_zoa_gal = in_zoa[src] | ~obs_sky[src]
+
+    # absolute mags: draw from the LF fainter than the local flux limit (the whole LF in the ZoA)
+    m_lim_gal = np.where(is_zoa_gal, -np.inf, k_lim - 5.0 * np.log10(dist) - 25.0)
+    start = np.searchsorted(lf_M, m_lim_gal)
+    pick = np.clip(start + (rng.random(n) * np.maximum(len(lf_M) - start, 1)).astype(int),
+                   0, len(lf_M) - 1)
+    absmag = lf_M[pick].astype(np.float32)
+    ksmag = (absmag + 5.0 * np.log10(dist) + 25.0).astype(np.float32)
+
+    xyz = np.column_stack([px, py, pz]).astype(np.float32)
+    unc = completion_uncert(xyz, dist, is_zoa_gal, uncert_fields, dmax=dmax)
+    return {"ra": nra, "dec": ndec, "dist_mpc": dist, "cz": cz, "ksmag": ksmag,
+            "absmag": absmag, "prov": np.full(n, PROV_INPAINT, np.int8),
+            "kind": np.where(is_zoa_gal, "zoa", "faint"), "uncert": unc}
+
+
+def _empty_completion():
+    z = np.zeros(0, np.float32)
+    return {"ra": z, "dec": z, "dist_mpc": z, "cz": z, "ksmag": z, "absmag": z,
+            "prov": np.zeros(0, np.int8), "kind": np.zeros(0, "<U5"), "uncert": z}
+
+
+def completion_uncert(xyz, dist, is_zoa, uncert_fields=None, dmax=300.0, r_reliable=200.0):
+    """Per-galaxy completion uncertainty in [0,1].
+
+    Principled measure when ``uncert_fields`` (a list of GriddedFieldContext posterior
+    realizations) is given: the normalised ensemble scatter of ``1+δ`` at the galaxy position
+    (where the realizations disagree, the completion is uncertain). Fallback: a distance
+    heuristic (reconstruction degrades beyond ``r_reliable``) plus a ZoA penalty."""
+    dist = np.asarray(dist, float)
+    if uncert_fields:
+        vals = np.array([f.overdensity_at(xyz) for f in uncert_fields])   # (n_real, N)
+        scatter = vals.std(0) / np.maximum(vals.mean(0), 0.3)
+        return np.clip(scatter, 0.0, 1.0).astype(np.float32)
+    u = np.clip(dist / r_reliable, 0.0, 1.0)
+    return np.clip(u + 0.2 * np.asarray(is_zoa, float), 0.0, 1.0).astype(np.float32)
+
+
 def complete_local_ensemble(cat, mcmc_list, *, manticore_dir=None, **kw):
     """One ZoA completion per Manticore realization → the true-3D posterior ensemble.
 

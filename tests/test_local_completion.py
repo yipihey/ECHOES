@@ -3,7 +3,24 @@ import numpy as np
 import pytest
 
 from echoes.local_completion import (galactic_b, radial_nbar, _calibrate_bias,
-                                     _ztransplant_kmag)
+                                     _ztransplant_kmag, absolute_mag, completion_uncert)
+
+
+def test_absolute_mag_distance_modulus():
+    # K=11 at 100 Mpc -> M = 11 - DM(100) - k ;  DM(100)=5log10(100)+25=35
+    M = absolute_mag(np.array([11.0]), np.array([100.0]), kcorr=False)
+    assert abs(M[0] - (-24.0)) < 1e-6
+    # K-band k(z)<0 makes M slightly fainter (less negative) at these z; small effect
+    Mk = absolute_mag(np.array([11.0]), np.array([100.0]), kcorr=True)
+    assert 0.0 < (Mk[0] - M[0]) < 0.3
+
+
+def test_completion_uncert_distance_heuristic():
+    dist = np.array([50.0, 150.0, 400.0])
+    u = completion_uncert(None, dist, np.zeros(3, bool), uncert_fields=None, r_reliable=200.0)
+    assert np.all((u >= 0) & (u <= 1)) and u[0] < u[1] < u[2]      # grows with distance
+    uz = completion_uncert(None, dist, np.ones(3, bool), uncert_fields=None)
+    assert np.all(uz >= u)                                          # ZoA penalty raises it
 
 
 def test_galactic_b_matches_astropy():

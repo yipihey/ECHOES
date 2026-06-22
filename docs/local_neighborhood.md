@@ -135,10 +135,22 @@ matches the observed luminosity (Ks≈11.7) and clustering (mean 1+δ ≈ 1.6 vs
 3D, tracing the structures behind the Milky Way (the Great Attractor region etc.). This **composes
 the two posterior ensembles** — Manticore's field posterior with the catalogue completion.
 
-Next refinements: radial flux-limit completion (restore faint galaxies at large d, not just the
-ZoA); a luminosity-function `n̄(d)` instead of the empirical shell estimate; per-galaxy `uncert`
-(ZoA fills are field-constrained, not prior-dominated, but still less certain than observed); a
-true-3D viewer. P2/P3 deliver the core engine + product.
+**Refinements (shipped).** `echoes/local_completion.py::complete_local` now does the FULL
+completion: it fills the ZoA AND restores the **faint galaxies below the flux limit everywhere**,
+to a uniform volume-limited density to `m_faint` modulated by the field. The selection is a
+**data-driven K-band luminosity function** (`estimate_lf`: `n̄0` + the LF sample from the nearby
+complete volume, no Schechter fit); restored galaxies draw absolute mags from the LF fainter than
+the local flux limit and carry `K = M + DM(d)`. Each completed galaxy carries a **per-galaxy
+`uncert`** (`completion_uncert`): the principled measure is the **ensemble scatter of `1+δ`** across
+the Manticore posterior realizations at that position (where the realizations disagree, the
+completion is uncertain), with a distance heuristic fallback. `pipeline/build_local_release.py
+--mode full` writes the product (volume-limited to `M_K=-22`: 67,966 observed + ~962k completed per
+realization, ~half ZoA, half faint-end; large → gitignored, regenerable). A **true-3D interactive
+viewer** (`pipeline/build_local_viewer.py` → `docs/local_viewer.html`, k3d) renders the observed +
+completed galaxies in comoving 3D — the ZoA fills highlighted, reconstructed behind the Milky Way.
+
+Further work: galaxy bias from the measured clustering (not just the mean-δ match); a Schechter
+cross-check of the data-driven LF; SHA/manifest for a versioned release; the full 80-member ensemble.
 
 ## Open decisions (resolved 2026-06-22: 2M++ galaxies + CF4 distances; Manticore field; **equatorial** frame)
 
