@@ -13,9 +13,19 @@ Shipped in [`data_release/`](data_release/) and ready for Zenodo archival:
 
 | file | size | contents |
 |---|---|---|
-| `cmass_south_posterior.npz` | 3.1 MB | the full completion posterior — the fixed observed catalog, an inverse-CDF redshift posterior for each missing target, and the field-correlation **copula** modes |
+| `cmass_south_posterior.npz` | 4.2 MB | the full completion posterior — the fixed observed catalog, an inverse-CDF redshift posterior for each missing target, the field-correlation **copula** modes, and the fixed **ugriz photometry** |
 | `cmass_south_randoms.npz` | 4.6 MB | uniform-footprint random catalog (RA, DEC, Z) |
 | `draw_samples.py` | — | standalone NumPy-only sampler |
+
+Every drawn galaxy carries its **photometry** — `mags` (ugriz model magnitudes) and
+`colors` (u-g, g-r, r-i, i-z) with `colors_finite`. These are the **real** SDSS values for
+observed and restored galaxies (the missing targets are real imaging detections; only their
+redshift is drawn), and a redshift-matched real-galaxy transplant for synthetic galaxies
+(systot PROV=3, inpaint PROV=5), so the completed galaxy **populations match the true
+observed ones at each redshift** (`validation/property_recovery.py`: overall P(colour,mag|z)
+recovers truth and halves the failure-induced magnitude bias). Mags are uint16-quantised
+(~3e-4 mag) with a per-band NaN sentinel; the frequently-negative u flux is kept as NaN while
+g/r/i/z stay finite.
 
 The missing redshifts are drawn through a **field-correlation copula** (low-rank modes
 of the measured ξ(r) correlation, stored in the package): the draw carries the coherent

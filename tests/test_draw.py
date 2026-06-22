@@ -43,5 +43,8 @@ def test_cli_npz_output(tmp_path):
     out = tmp_path / "catalog_0.npz"
     draw_main(["--package", PKG, "--seed", "0", "--out", str(out)])
     d = np.load(out)
-    assert set(d.files) == {"ra", "dec", "z", "prov"}
+    # photometry columns present iff the package carries base_mags (the released one does)
+    assert {"ra", "dec", "z", "prov"} <= set(d.files)
+    if "mags" in d.files:
+        assert d["mags"].shape == (119885, 5) and d["colors"].shape == (119885, 4)
     assert len(d["ra"]) == 119885

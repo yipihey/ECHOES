@@ -35,6 +35,42 @@ from .completion import (_radec_to_nhat, _clpair_density, _systot_restore_extras
                            measure_close_pair_dz, PROV)
 
 QUANT_VERSION = 1
+MAG_LO, MAG_HI = 10.0, 32.0          # uint16 quantisation window for ugriz model mags
+
+
+def _quant_mags(m, lo=MAG_LO, hi=MAG_HI):
+    """Quantise per-band mags to uint16 in [1,65535]; non-finite → sentinel 0 (so a bad
+    single band, e.g. the frequently-negative u flux, is preserved as NaN without
+    discarding the galaxy's good g/r/i/z). Precision ~3e-4 mag ≪ photometric error."""
+    m = np.asarray(m, np.float64)
+    q = np.clip(np.round((m - lo) / (hi - lo) * 65534.0) + 1.0, 1, 65535)
+    q = np.where(np.isfinite(m), q, 0.0)
+    return q.astype(np.uint16)
+
+
+def _dequant_mags(q, lo=MAG_LO, hi=MAG_HI):
+    out = lo + (np.asarray(q).astype(np.float32) - 1.0) / 65534.0 * (hi - lo)
+    out[np.asarray(q) == 0] = np.nan
+    return out.astype(np.float32)
+
+
+def _assemble_base_mags(catalog, targets):
+    """Fixed (n_obs+n_miss, 5) ugriz model mags — REAL for observed and missing (the
+    missing targets are real imaging detections). ``None`` if photometry is absent."""
+    if getattr(catalog, "mags_data", None) is None or targets.mags is None:
+        return None
+    return np.concatenate([np.asarray(catalog.mags_data, np.float64),
+                           np.asarray(targets.mags, np.float64)], axis=0).astype(np.float32)
+
+
+def _mag_cols(mags):
+    """``{mags, colors, colors_finite}`` from a (N,5) ugriz array, or ``{}`` if None.
+    Colors are the four adjacent differences (the ``fluxes_to_colors`` convention)."""
+    if mags is None:
+        return {}
+    m = np.asarray(mags, np.float32)
+    return {"mags": m, "colors": (m[:, :-1] - m[:, 1:]).astype(np.float32),
+            "colors_finite": np.isfinite(m).all(axis=1)}
 
 
 def _phi(x):
@@ -171,6 +207,7 @@ def build_package(catalog, targets, photoz, *, dz_pool=None, nq=65, ngrid=256,
         "obs_z": z_o.astype(np.float32),                 # fixed observed redshifts
         "base_ra": base_ra, "base_dec": base_dec,        # obs + missing positions (fixed)
         "base_wsys": base_wsys, "base_prov": base_prov,
+        "base_mags": _assemble_base_mags(catalog, targets),   # (n_base,5) real ugriz, or None
         "invcdf": invcdf.astype(np.float32),             # (M, nq) per-object quantile fn
     }
     if copula:
@@ -283,6 +320,7 @@ def build_package_generative(catalog, targets, photoz, gen_model, *, dz_pool=Non
         "obs_z": z_o.astype(np.float32),
         "base_ra": base_ra, "base_dec": base_dec,
         "base_wsys": base_wsys, "base_prov": base_prov,
+        "base_mags": _assemble_base_mags(catalog, targets),
         "invcdf": invcdf.astype(np.float32),
         "package_engine": "generative",
     }
@@ -306,6 +344,10 @@ def write_package(pkg, path):
     if pkg.get("cmodes") is not None:                                  # copula low-rank factor
         extra["cmodes"] = pkg["cmodes"].astype(np.float16)            # (M, K)
         extra["cdiag"] = pkg["cdiag"].astype(np.float16)             # (M,)
+    if pkg.get("base_mags") is not None:                               # fixed ugriz photometry
+        extra["base_mags_q"] = _quant_mags(pkg["base_mags"])          # uint16, per-band NaN sentinel
+        extra["mag_lo"] = MAG_LO
+        extra["mag_hi"] = MAG_HI
     np.savez_compressed(
         path,
         version=QUANT_VERSION, n_obs=pkg["n_obs"], n_miss=pkg["n_miss"],
@@ -335,6 +377,9 @@ def load_package(path):
     if "cmodes" in d.files:
         pkg["cmodes"] = d["cmodes"].astype(np.float32)
         pkg["cdiag"] = d["cdiag"].astype(np.float32)
+    pkg["base_mags"] = None
+    if "base_mags_q" in d.files:
+        pkg["base_mags"] = _dequant_mags(d["base_mags_q"], float(d["mag_lo"]), float(d["mag_hi"]))
     return pkg
 
 
@@ -378,19 +423,24 @@ def draw(pkg, seed=0, *, systot=True, copula=None):
     base_ra, base_dec = pkg["base_ra"], pkg["base_dec"]
     base_z = np.concatenate([pkg["obs_z"], z_miss]).astype(np.float32)
     base_prov = pkg["base_prov"]
+    base_mags = pkg.get("base_mags")                       # fixed ugriz (n_base,5) or None
     if not systot:
         return {"ra": base_ra.copy(), "dec": base_dec.copy(), "z": base_z, "prov": base_prov.copy(),
-                "N": len(base_ra)}
+                "N": len(base_ra), **_mag_cols(base_mags)}
 
     wsys = pkg["base_wsys"]
     n_extra = np.floor(np.maximum(wsys - 1.0, 0.0) + rng.random(len(wsys))).astype(int)
     src = np.repeat(np.arange(len(base_ra)), n_extra)
     ex_ra, ex_dec, ex_z = _systot_restore_extras(
         base_ra.astype(np.float64), base_dec.astype(np.float64), base_z.astype(np.float64), src, rng)
+    # systot extras inherit the SOURCE galaxy's photometry (copies base_mags[src], like base_z) —
+    # consumes no RNG, so z/ra/dec stay byte-identical to the no-photometry draw.
+    out_mags = np.concatenate([base_mags, base_mags[src]]) if base_mags is not None else None
     return {
         "ra": np.concatenate([base_ra, ex_ra]).astype(np.float32),
         "dec": np.concatenate([base_dec, ex_dec]).astype(np.float32),
         "z": np.concatenate([base_z, ex_z]).astype(np.float32),
         "prov": np.concatenate([base_prov, np.full(len(ex_ra), PROV["systot"], np.int8)]),
         "N": len(base_ra) + len(ex_ra),
+        **_mag_cols(out_mags),
     }

@@ -7,7 +7,7 @@ failures) at their real imaging positions with a GP/local-density redshift. The
 posterior is stored compactly so you draw as many samples as you like locally.
 
 ## Files
-- `cmass_south_posterior.npz`  (3.14 MB) the posterior (observed base once +
+- `cmass_south_posterior.npz`  (4.22 MB) the posterior (observed base once +
   each missing galaxy's redshift inverse-CDF). 1 file = the whole ensemble.
 - `cmass_south_randoms.npz`     (4.63 MB) uniform-footprint randoms (RA, DEC, Z),
   438,544 points. CMASS-South is ~99% complete (COMP~0.99) so these are uniform to ~1%.
@@ -32,7 +32,11 @@ the completion reproduces the official w_c-weighted clustering to ~1-2%.
 This package carries a field-correlation **copula**: the missing redshifts are drawn with the coherent cross-object dependence of the measured xi(r), not independently, so the large-scale completion covariance is honest (the per-object marginals are identical to the independent draw). `draw(pkg, seed, copula=False)` recovers the independent draw.
 
 ## Columns
-RA, DEC [deg]; Z (redshift); PROV (per-object provenance, int8):
+RA, DEC [deg]; Z (redshift); MAGS (ugriz model mags, N x 5) + COLORS (u-g,g-r,r-i,i-z,
+N x 4) + COLORS_FINITE — real photometry for observed/restored galaxies, a z-matched
+real-galaxy transplant for synthetic ones (so populations match the truth at each z; a
+non-finite u-band is kept as NaN per element, g/r/i/z always finite); PROV (per-object
+provenance, int8):
   0 observed   — real spec-z, the fixed base catalogue;
   1 collided   — COMPLETED: galaxy lost to a fiber collision, restored at its
                  imaging position with a close-pair-anchored redshift;

@@ -84,11 +84,13 @@ def main():
         ip = sample_inpaint_catalog(
             fp, donor_ra=ra_o, donor_dec=dec_o, donor_z=z_o,
             rand_ra=np.asarray(cat.ra_random), rand_dec=np.asarray(cat.dec_random),
+            donor_mags=getattr(cat, "mags_data", None),    # z-matched photometry for PROV=5
             mode="cr", seed=int(s), density_boost=wc, field_ctx=gm.field_ctx, transform=tf,
             field_nside=args.field_nside)
         p = os.path.join(cdir, f"inpaint_seed_{int(s):04d}.npz")
+        extra = {"mags": ip["mags"], "colors": ip["colors"]} if "mags" in ip else {}
         np.savez_compressed(p, ra=ip["ra"], dec=ip["dec"], z=ip["z"],
-                            prov=ip["prov"], uncert=ip["uncert"])
+                            prov=ip["prov"], uncert=ip["uncert"], **extra)
         density = len(ip["ra"]) / max(fill_deg2, 1e-9)
         seed_meta.append({"seed": int(s), "n_inpaint": int(len(ip["ra"])),
                           "inpaint_density_per_deg2": round(density, 1)})

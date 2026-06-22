@@ -32,6 +32,31 @@ def _uncert(ra, dec, obs_ra, obs_dec, scale_deg):
     return np.clip(dist_deg / max(scale_deg, 1e-6), 0.0, 1.0).astype(np.float32)
 
 
+def _ztransplant_mags(z_new, donor_z, donor_mags, rng, K=50):
+    """Assign each synthetic galaxy the ugriz mags of a real observed galaxy at MATCHING
+    redshift — drawn uniformly among its ``K`` nearest-in-z donors so the synthetic
+    population at each z is a fair sample of the true observed population there (and the
+    color–z scatter is preserved). Returns (N,5) or None if no donor photometry."""
+    if donor_mags is None or len(np.atleast_1d(donor_z)) == 0:
+        return None
+    donor_z = np.asarray(donor_z); donor_mags = np.asarray(donor_mags)
+    order = np.argsort(donor_z); zs = donor_z[order]; ms = donor_mags[order]
+    nd = len(zs); K = int(min(K, nd))
+    pos = np.searchsorted(zs, np.asarray(z_new, float))     # window of K nearest-in-z
+    lo = np.clip(pos - K // 2, 0, max(nd - K, 0))
+    pick = np.clip(lo + rng.integers(0, K, size=len(np.atleast_1d(z_new))), 0, nd - 1)
+    return ms[pick].astype(np.float32)
+
+
+def _inpaint_cols(mags):
+    """{mags, colors, colors_finite} for the inpaint return, or {} if mags is None."""
+    if mags is None:
+        return {}
+    m = np.asarray(mags, np.float32)
+    return {"mags": m, "colors": (m[:, :-1] - m[:, 1:]).astype(np.float32),
+            "colors_finite": np.isfinite(m).all(axis=1)}
+
+
 def _empty():
     e = np.zeros(0, np.float32)
     return {"ra": e, "dec": e, "z": e, "prov": np.zeros(0, np.int8), "uncert": e}
@@ -71,6 +96,7 @@ def sample_inpaint_catalog(footprint, *, donor_ra, donor_dec, donor_z,
         r = reals[0]
         ra = np.asarray(r["ra"], np.float32); dec = np.asarray(r["dec"], np.float32)
         z = np.asarray(r["z"], np.float32)
+        mags = np.asarray(r["mags"], np.float32) if "mags" in r else None   # donor mags (real pair)
     elif mode == "thin":
         from .randoms import make_random_from_selection_function
         from .selection_coupling import local_overdensity
@@ -92,6 +118,7 @@ def sample_inpaint_catalog(footprint, *, donor_ra, donor_dec, donor_z,
         p_acc = np.clip(fw * opd * density_boost / float(thin_oversample), 0.0, 1.0)
         acc = rng.random(len(pr)) < p_acc
         ra = pr[acc].astype(np.float32); dec = pd[acc].astype(np.float32); z = pz[acc].astype(np.float32)
+        mags = _ztransplant_mags(z, donor_z, donor_mags, rng)   # z-matched real-galaxy photometry
     elif mode == "cr":
         # Constrained-realization (LGCP Poisson) fill: per fill pixel draw the STOCHASTIC
         # conditional field 1+δ(z) (Matheron, echoes.fieldpost), set the expected count to
@@ -165,10 +192,12 @@ def sample_inpaint_catalog(footprint, *, donor_ra, donor_dec, donor_z,
         zidx = (cdf[row] < rng.random(N)[:, None]).sum(1)
         z = zgrid[np.clip(zidx, 0, len(zgrid) - 1)]
         ra = ra.astype(np.float32); dec = dec.astype(np.float32); z = z.astype(np.float32)
+        mags = _ztransplant_mags(z, donor_z, donor_mags, rng)   # z-matched real-galaxy photometry
     else:
         raise ValueError(f"inpaint mode {mode!r} not recognised ('cr', 'thin', or 'analog')")
     if len(ra) == 0:
         return _empty()
     unc = _uncert(ra, dec, donor_ra, donor_dec, uncert_scale_deg)
     return {"ra": ra, "dec": dec, "z": z,
-            "prov": np.full(len(ra), PROV_INPAINT, np.int8), "uncert": unc}
+            "prov": np.full(len(ra), PROV_INPAINT, np.int8), "uncert": unc,
+            **_inpaint_cols(mags)}

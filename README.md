@@ -70,6 +70,13 @@ weights): the completion reproduces the official weighted BOSS clustering to ~1�
 Provenance flags (`PROV`): `0` observed-specz · `1` fiber-collided · `2`
 redshift-failure · `3` imaging-systematic analog · `4` zhost-fallback.
 
+Every galaxy also carries its **photometry** — `mags` (ugriz model magnitudes) and
+`colors` (u-g, g-r, r-i, i-z), with `colors_finite`. These are the **real** SDSS values
+for observed and restored galaxies (the missing targets are real imaging detections),
+and a redshift-matched real-galaxy transplant for synthetic galaxies, so the completed
+galaxy **populations match the true observed ones at each redshift**
+(`validation/property_recovery.py`).
+
 ### Joint dependence (optional copula)
 By default each missing redshift is drawn from its own posterior **independently** —
 correct per object, but it under-disperses the *coherent* large-scale completion

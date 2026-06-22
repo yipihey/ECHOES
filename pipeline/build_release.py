@@ -122,7 +122,11 @@ the completion reproduces the official w_c-weighted clustering to ~1-2%.
  "This package uses the independent (IID) missing-redshift draw."}
 
 ## Columns
-RA, DEC [deg]; Z (redshift); PROV (per-object provenance, int8):
+RA, DEC [deg]; Z (redshift); MAGS (ugriz model mags, N x 5) + COLORS (u-g,g-r,r-i,i-z,
+N x 4) + COLORS_FINITE — real photometry for observed/restored galaxies, a z-matched
+real-galaxy transplant for synthetic ones (so populations match the truth at each z; a
+non-finite u-band is kept as NaN per element, g/r/i/z always finite); PROV (per-object
+provenance, int8):
   0 observed   — real spec-z, the fixed base catalogue;
   1 collided   — COMPLETED: galaxy lost to a fiber collision, restored at its
                  imaging position with a close-pair-anchored redshift;

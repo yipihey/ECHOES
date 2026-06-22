@@ -91,6 +91,7 @@ def draw_main(argv=None):
     pkg = load_package(_resolve_package(args.package))
 
     def write(cat, path):
+        keys = [k for k in ("ra", "dec", "z", "prov", "mags", "colors", "colors_finite") if k in cat]
         if path.endswith(".fits"):
             try:
                 from astropy.table import Table
@@ -98,11 +99,14 @@ def draw_main(argv=None):
                 raise SystemExit(
                     "writing FITS requires astropy; install echoes[fits] or use a .npz output path"
                 ) from exc
-            Table({"RA": cat["ra"], "DEC": cat["dec"], "Z": cat["z"], "PROV": cat["prov"]}).write(
-                path, overwrite=True)
+            tab = {"RA": cat["ra"], "DEC": cat["dec"], "Z": cat["z"], "PROV": cat["prov"]}
+            if "mags" in cat:
+                tab["MODELMAG"] = cat["mags"]; tab["COLOR"] = cat["colors"]
+                tab["COLORS_FINITE"] = cat["colors_finite"]
+            Table(tab).write(path, overwrite=True)
         else:
             import numpy as np
-            np.savez_compressed(path, **{k: cat[k] for k in ("ra", "dec", "z", "prov")})
+            np.savez_compressed(path, **{k: cat[k] for k in keys})
 
     seeds = range(args.seed, args.seed + args.n)
     for s in seeds:

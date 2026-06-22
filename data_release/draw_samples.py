@@ -15,9 +15,14 @@ each ~120k galaxies, in milliseconds, with no per-sample storage.
     cat = draw(pkg, seed=0)         # dict(ra, dec, z, prov, N)
 
 Columns: RA, DEC [deg], Z (redshift), PROV (0 observed-specz, 1 fiber-collided,
-2 redshift-failure, 3 systot-analog, 4 zhost-fallback). The catalog is equal-weight
-and cosmology-free; pair it with the bundled `cmass_south_randoms.npz` (uniform over
-the footprint). See README.md, DATA.md, and docs/method.md in the repository.
+2 redshift-failure, 3 systot-analog, 4 zhost-fallback); and, when the package carries
+photometry, MAGS (ugriz model mags, N×5), COLORS (u-g,g-r,r-i,i-z, N×4) and
+COLORS_FINITE — REAL for observed/restored galaxies, a z-matched real-galaxy transplant
+for synthetic ones, so the populations match the truth at each redshift (a frequently
+non-finite u-band is preserved as NaN per element; g/r/i/z are always finite). The
+catalog is equal-weight and cosmology-free; pair it with the bundled
+`cmass_south_randoms.npz` (uniform over the footprint). See README.md, DATA.md, and
+docs/method.md in the repository.
 """
 import argparse
 import numpy as np
@@ -27,6 +32,13 @@ PROV_NAME = {0: "observed", 1: "collided", 2: "zfail", 3: "systot", 4: "zhost", 
 
 def _dequant(u, lo, hi):
     return lo + u.astype(np.float32) / 65535.0 * (hi - lo)
+
+
+def _dequant_mags(q, lo, hi):
+    """uint16 -> ugriz mags; sentinel 0 -> NaN (matches echoes.posterior._dequant_mags)."""
+    out = lo + (np.asarray(q).astype(np.float32) - 1.0) / 65534.0 * (hi - lo)
+    out[np.asarray(q) == 0] = np.nan
+    return out.astype(np.float32)
 
 
 def _phi(x):
@@ -40,6 +52,16 @@ def _phi(x):
     return 0.5 * (1.0 + erf)
 
 
+def _mag_cols(mags):
+    """{mags, colors, colors_finite} from a (N,5) ugriz array, or {} if None.
+    Colors are the four adjacent differences (u-g,g-r,r-i,i-z); matches echoes.posterior."""
+    if mags is None:
+        return {}
+    m = np.asarray(mags, np.float32)
+    return {"mags": m, "colors": (m[:, :-1] - m[:, 1:]).astype(np.float32),
+            "colors_finite": np.isfinite(m).all(axis=1)}
+
+
 def load_package(path):
     """Load and de-quantize the posterior package (.npz)."""
     d = np.load(path)
@@ -51,10 +73,13 @@ def load_package(path):
         "invcdf": _dequant(d["invcdf_q"], zmin, zmax).astype(np.float64),
         "base_ra": d["base_ra"], "base_dec": d["base_dec"],
         "base_wsys": d["base_wsys"].astype(np.float32), "base_prov": d["base_prov"],
+        "base_mags": None,
     }
     if "cmodes" in d.files:                                  # field-correlation copula modes
         pkg["cmodes"] = d["cmodes"].astype(np.float32)
         pkg["cdiag"] = d["cdiag"].astype(np.float32)
+    if "base_mags_q" in d.files:                             # fixed ugriz photometry
+        pkg["base_mags"] = _dequant_mags(d["base_mags_q"], float(d["mag_lo"]), float(d["mag_hi"]))
     return pkg
 
 
@@ -83,9 +108,10 @@ def draw(pkg, seed=0, systot=True, copula=None):
     base_ra, base_dec = pkg["base_ra"], pkg["base_dec"]
     base_z = np.concatenate([pkg["obs_z"], z_miss]).astype(np.float32)
     base_prov = pkg["base_prov"]
+    base_mags = pkg.get("base_mags")                       # fixed ugriz (n_base,5) or None
     if not systot:
         return {"ra": base_ra.copy(), "dec": base_dec.copy(), "z": base_z,
-                "prov": base_prov.copy(), "N": len(base_ra)}
+                "prov": base_prov.copy(), "N": len(base_ra), **_mag_cols(base_mags)}
     # WEIGHT_SYSTOT analog excess: restore floor(max(w-1,0)+U) galaxies at the
     # survivor position + ~1" jitter (smooth imaging-systematic boost; no Dtheta=0).
     wsys = pkg["base_wsys"]
@@ -95,16 +121,22 @@ def draw(pkg, seed=0, systot=True, copula=None):
     cd = np.cos(np.radians(base_dec[src].astype(np.float64)))
     ex_ra = (base_ra[src] + rng.normal(0, 1, len(src)) * sig / np.maximum(cd, 1e-3)) % 360.0
     ex_dec = base_dec[src] + rng.normal(0, 1, len(src)) * sig
+    out_mags = np.concatenate([base_mags, base_mags[src]]) if base_mags is not None else None
     return {
         "ra": np.concatenate([base_ra, ex_ra]).astype(np.float32),
         "dec": np.concatenate([base_dec, ex_dec]).astype(np.float32),
         "z": np.concatenate([base_z, base_z[src]]).astype(np.float32),
         "prov": np.concatenate([base_prov, np.full(len(src), 3, np.int8)]),
         "N": len(base_ra) + len(src),
+        **_mag_cols(out_mags),
     }
 
 
 def _write(cat, path):
+    cols = {"ra": cat["ra"], "dec": cat["dec"], "z": cat["z"], "prov": cat["prov"]}
+    if "mags" in cat:                                       # ugriz + colors when present
+        cols["mags"] = cat["mags"]; cols["colors"] = cat["colors"]
+        cols["colors_finite"] = cat["colors_finite"]
     if path.endswith(".fits"):
         try:
             from astropy.table import Table
@@ -112,10 +144,13 @@ def _write(cat, path):
             raise SystemExit(
                 "writing FITS requires astropy; use a .npz output path or install astropy"
             ) from exc
-        Table({"RA": cat["ra"], "DEC": cat["dec"], "Z": cat["z"], "PROV": cat["prov"]}).write(
-            path, overwrite=True)
+        tab = {"RA": cat["ra"], "DEC": cat["dec"], "Z": cat["z"], "PROV": cat["prov"]}
+        if "mags" in cat:
+            tab["MODELMAG"] = cat["mags"]; tab["COLOR"] = cat["colors"]
+            tab["COLORS_FINITE"] = cat["colors_finite"]
+        Table(tab).write(path, overwrite=True)
     else:
-        np.savez_compressed(path, ra=cat["ra"], dec=cat["dec"], z=cat["z"], prov=cat["prov"])
+        np.savez_compressed(path, **cols)
 
 
 def main():

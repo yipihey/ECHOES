@@ -669,6 +669,14 @@ def complete_catalog_photoz(
                          np.where(np.asarray(targets.miss_kind) == "collided",
                                   PROV["collided"], PROV["zfail"]))
     base_prov = np.concatenate([np.full(len(ra_o), PROV["observed"]), miss_prov])
+    # base ugriz model mags: REAL for observed AND missing (the missing targets are real
+    # imaging detections). Carried so every completed galaxy keeps its true photometry;
+    # colors are derived from mags on emit (the fluxes_to_colors convention). None when
+    # the catalog/targets lack photometry (mocks) — the whole column path is then skipped.
+    has_phot = getattr(catalog, "mags_data", None) is not None and targets.mags is not None
+    base_mags = (np.concatenate([np.asarray(catalog.mags_data, np.float64),
+                                 np.asarray(targets.mags, np.float64)], axis=0)
+                 if has_phot else None)
 
     # ---- imaging-systematic completion ----
     if systot_mode == "duplicate":                         # legacy: exact duplicates (Δθ=0)
@@ -676,6 +684,7 @@ def complete_catalog_photoz(
              else np.floor(base_wsys + rng.random(len(base_wsys))).astype(int))
         idx = np.repeat(np.arange(len(base_ra)), n)
         out_ra, out_dec, out_z, out_prov = base_ra[idx], base_dec[idx], base_z[idx], base_prov[idx]
+        out_mags = base_mags[idx] if has_phot else None
     else:                                                  # 'analog'
         # MEAN-PRESERVING imaging-systematic completion: E[count per base object]
         # = w_systot. Restore the deficit where w_systot>1 by adding local analogs
@@ -699,6 +708,9 @@ def complete_catalog_photoz(
         out_dec = np.concatenate([base_dec[keep], ex_dec])
         out_z = np.concatenate([base_z[keep], ex_z])
         out_prov = np.concatenate([base_prov[keep], np.full(len(ex_ra), PROV["systot"])])
+        # systot analog inherits the SOURCE galaxy's real photometry (a real (colour,z)
+        # pair by construction) — the extras copy base_mags[src] just as they copy base_z.
+        out_mags = np.concatenate([base_mags[keep], base_mags[src]]) if has_phot else None
 
     # ---- generative inpainting of the un-observed footprint (veto holes) ----
     # GENERATES new galaxies where there is no imaging (PROV['inpaint']=5), so the
@@ -747,15 +759,27 @@ def complete_catalog_photoz(
             out_z = np.concatenate([out_z, ip["z"]])
             out_prov = np.concatenate([out_prov, ip["prov"]])
             out_uncert = np.concatenate([out_uncert, ip["uncert"]])
+            # inpaint photometry (z-matched donor transplant); keep columns only if the
+            # inpaint actually added galaxies WITH mags, else drop for this catalog. An
+            # empty inpaint (n_inpaint==0) leaves the base photometry untouched.
+            if out_mags is not None and n_inpaint > 0:
+                out_mags = (np.concatenate([out_mags, np.asarray(ip["mags"], np.float64)])
+                            if ip.get("mags") is not None else None)
 
     if verbose:
         print(f"[complete-photoz] N_obs={len(ra_o):,} + {targets.N:,} missing "
               f"-> N_eq={len(out_ra):,} (+{100*(len(out_ra)/len(ra_o)-1):.1f}%), "
               f"mode={systot_mode}, zhost-fallback={int(zhost_fallback.sum())}"
               f"{f', +{n_inpaint:,} inpaint' if n_inpaint else ''}")
-    return {"ra": out_ra.astype(np.float32), "dec": out_dec.astype(np.float32),
-            "z": out_z.astype(np.float32), "N": len(out_ra),
-            "prov": out_prov.astype(np.int8), "uncert": out_uncert.astype(np.float32)}
+    out = {"ra": out_ra.astype(np.float32), "dec": out_dec.astype(np.float32),
+           "z": out_z.astype(np.float32), "N": len(out_ra),
+           "prov": out_prov.astype(np.int8), "uncert": out_uncert.astype(np.float32)}
+    if out_mags is not None:
+        m = out_mags.astype(np.float32)
+        out["mags"] = m                                    # (N,5) ugriz model mags
+        out["colors"] = (m[:, :-1] - m[:, 1:]).astype(np.float32)   # (N,4) u-g,g-r,r-i,i-z
+        out["colors_finite"] = np.isfinite(m).all(axis=1)
+    return out
 
 
 @perf.timed("generate_catalogs_from_kernel")
