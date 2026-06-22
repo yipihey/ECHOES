@@ -93,7 +93,23 @@ The repo is already 3D-aware, so most pieces are reused, not rebuilt:
   package + the field cubes; the viewer renders the 3D volume + completed points; validation
   against the held-out reconstruction and CF4 velocities.
 
-## Open decisions (to steer before P1)
+## P1 status & a key finding (frame/validation)
+
+Shipped: `echoes/surveys/manticore.py` (80-member field reader; 1+δ=ρ/⟨ρ⟩, v=p/ρ),
+`echoes/field_grid.py::GriddedFieldContext` (trilinear sampler of a reconstructed cube at
+comoving points), `echoes/surveys/local.py::LocalCatalog`/`load_local_cf4` (true-3D catalog
+in supergalactic Mpc, **conforms to `SurveyCatalog`**, ZoA-masked `sel_map`).
+
+**Finding — the field-cube alignment must be validated with the self-consistent pairing.**
+Galaxy positions correlate only weakly with the **CF4** δ cube (r≈0.07 even after brute-forcing
+all axis/sign frames). This is expected: CF4 distance errors (~15–20%, ±40 Mpc at 200 Mpc) far
+exceed the 15.6 Mpc/h voxel, so distance tracers scatter across voxels and the Wiener-filtered
+field is intrinsically smooth. The decisive validation is therefore **2M++ galaxies vs the
+Manticore field** — self-consistent because Manticore was inferred *from* 2M++ (much denser,
+nonlinear, redshift-based). So the conditioning field is **Manticore** (per the locked decision);
+CF4 supplies real distances for the sparse distance tracers and an independent velocity check.
+
+## Open decisions (resolved 2026-06-22: 2M++ galaxies + CF4 distances; Manticore field; supergalactic frame)
 
 1. **Anchor galaxy catalog:** 2M++ (Manticore's own input; near-full-sky, ZoA-masked) vs the
    CF4 distance sample vs 2MRS. Recommendation: 2M++ for the catalog + CF4 for real distances,
