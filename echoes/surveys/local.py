@@ -45,10 +45,30 @@ class LocalCatalog:
     w_cp_data: np.ndarray = None
     w_noz_data: np.ndarray = None
     source: str = "cf4"
+    frame: str = "supergalactic"        # comoving frame of xyz_data ('equatorial' for the Manticore line)
 
     @property
     def N_data(self):
         return len(self.ra_data)
+
+
+def _equatorial_unit(ra, dec):
+    r = np.radians(np.asarray(ra, float)); d = np.radians(np.asarray(dec, float)); cd = np.cos(d)
+    return np.column_stack([cd * np.cos(r), cd * np.sin(r), np.sin(d)])
+
+
+def field_corrected_distance(ra, dec, cz_cmb, field, H0=68.1, n_iter=5):
+    """True comoving distance from CMB-frame redshift, correcting for the reconstructed radial
+    peculiar velocity: solve ``cz = H0·d + v·n̂`` iteratively against the (equatorial-frame)
+    reconstructed velocity field ``field`` (a GriddedFieldContext). A few iterations converge
+    outside triple-valued infall zones."""
+    nhat = _equatorial_unit(ra, dec)
+    cz = np.asarray(cz_cmb, float)
+    d = cz / H0
+    for _ in range(n_iter):
+        vr = np.einsum("ij,ij->i", field.velocity_at(d[:, None] * nhat), nhat)
+        d = np.clip((cz - vr) / H0, 1.0, None)
+    return d.astype(np.float32)
 
 
 def load_local_cf4(nside=32, zoa_deg=5.0, n_random_mult=4, dmax_mpc=None, seed=0):
@@ -99,3 +119,53 @@ def load_local_cf4(nside=32, zoa_deg=5.0, n_random_mult=4, dmax_mpc=None, seed=0
         sel_map=sel, nside=nside, xyz_data=xyz, dist_mpc=dist.astype(np.float32),
         w_sys_data=np.ones(n, np.float32), w_cp_data=np.ones(n, np.float32),
         w_noz_data=np.ones(n, np.float32), source="cf4")
+
+
+def load_local_2mpp(field_mcmc=0, H0=68.1, nside=64, zoa_deg=5.0, dmax_mpc=400.0,
+                    n_random_mult=4, seed=0):
+    """True-3D ``LocalCatalog`` from 2M++ with **Manticore field-corrected distances**.
+
+    The recommended local product: 2M++ galaxies (dense, near-full-sky) placed at true comoving
+    distances by correcting their CMB-frame redshift with the reconstructed radial peculiar
+    velocity of one Manticore realization (``field_corrected_distance``). Positions are
+    **equatorial** comoving [Mpc] — the validated Manticore frame, so galaxies and the
+    conditioning field share coordinates. ``dmax_mpc`` keeps galaxies inside the box / reliable
+    reconstruction region."""
+    import healpy as hp
+    from astropy.coordinates import SkyCoord
+    import astropy.units as u
+    from .twompp import read_2mpp
+    from .manticore import manticore_field_context
+
+    c = read_2mpp()
+    keep = (c.vcmb / H0) < dmax_mpc
+    ra, dec, vcmb = c.ra[keep], c.dec[keep], c.vcmb[keep]
+    fc = manticore_field_context(field_mcmc)
+    dist = field_corrected_distance(ra, dec, vcmb, fc, H0=H0)        # Manticore-corrected
+    xyz = (dist[:, None] * _equatorial_unit(ra, dec)).astype(np.float32)   # equatorial comoving
+    z = (vcmb / C_KMS).astype(np.float32)
+
+    # angular selection: 2M++ coverage minus the Zone of Avoidance (|b_gal| < zoa)
+    theta = np.radians(90.0 - dec); phi = np.radians(ra % 360.0)
+    sel = np.zeros(hp.nside2npix(nside), np.float32)
+    sel[np.unique(hp.ang2pix(nside, theta, phi))] = 1.0
+    gl, gb = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)), lonlat=True)
+    bgal = SkyCoord(gl * u.deg, gb * u.deg, frame="icrs").galactic.b.deg
+    sel[np.abs(bgal) < zoa_deg] = 0.0
+
+    rng = np.random.default_rng(seed)
+    nr = n_random_mult * len(ra)
+    okpix = np.where(sel > 0)[0]
+    rp = rng.choice(okpix, nr)
+    rth, rph = hp.pix2ang(nside, rp)
+    rth = np.clip(rth + (rng.random(nr) - 0.5) * hp.nside2resol(nside), 1e-6, np.pi - 1e-6)
+    rdec = 90.0 - np.degrees(rth); rra = np.degrees(rph) % 360.0
+    rz = rng.choice(z, nr).astype(np.float32)
+
+    n = len(ra)
+    return LocalCatalog(
+        ra_data=ra.astype(np.float32), dec_data=dec.astype(np.float32), z_data=z,
+        ra_random=rra.astype(np.float32), dec_random=rdec.astype(np.float32), z_random=rz,
+        sel_map=sel, nside=nside, xyz_data=xyz, dist_mpc=dist,
+        w_sys_data=np.ones(n, np.float32), w_cp_data=np.ones(n, np.float32),
+        w_noz_data=np.ones(n, np.float32), source="2mpp", frame="equatorial")

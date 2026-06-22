@@ -39,6 +39,18 @@ def available_realizations(manticore_dir=MANTICORE_DIR):
     return sorted(out)
 
 
+def manticore_field_context(mcmc=0, manticore_dir=MANTICORE_DIR):
+    """A :class:`echoes.field_grid.GriddedFieldContext` for one Manticore realization.
+
+    Frame (validated by maximising 2M++ overdensity alignment, mean 1+δ≈4.5): **equatorial**
+    Cartesian, identity axes, observer at the box centre — so positions fed to it must be
+    equatorial comoving [Mpc]."""
+    from ..field_grid import GriddedFieldContext
+    f = read_manticore_field(mcmc, manticore_dir)
+    return GriddedFieldContext(delta=f.density, box_mpc=f.box_mpc, velocity=f.velocity,
+                               axis_order=(0, 1, 2))
+
+
 def read_manticore_field(mcmc=0, manticore_dir=MANTICORE_DIR):
     """Density (1+δ) + 3D peculiar-velocity (km/s) of one Manticore-Local posterior realization.
 

@@ -104,10 +104,17 @@ in supergalactic Mpc, **conforms to `SurveyCatalog`**, ZoA-masked `sel_map`).
 Galaxy positions correlate only weakly with the **CF4** δ cube (r≈0.07 even after brute-forcing
 all axis/sign frames). This is expected: CF4 distance errors (~15–20%, ±40 Mpc at 200 Mpc) far
 exceed the 15.6 Mpc/h voxel, so distance tracers scatter across voxels and the Wiener-filtered
-field is intrinsically smooth. The decisive validation is therefore **2M++ galaxies vs the
-Manticore field** — self-consistent because Manticore was inferred *from* 2M++ (much denser,
-nonlinear, redshift-based). So the conditioning field is **Manticore** (per the locked decision);
-CF4 supplies real distances for the sparse distance tracers and an independent velocity check.
+field is intrinsically smooth. The decisive validation is **2M++ galaxies vs the Manticore field**
+— self-consistent because Manticore was inferred *from* 2M++ (much denser, nonlinear).
+
+**Resolved (P1b).** Brute-forcing the frame to maximise the 2M++ overdensity alignment gives a
+**strong, unambiguous** signal: **mean 1+δ ≈ 4.5** at 2M++ galaxy positions (nearest-voxel), in
+the **equatorial Cartesian** frame with **identity axes, observer-centred** — that is the
+Manticore frame convention (`manticore_field_context` uses `axis_order=(0,1,2)`, equatorial Mpc).
+With trilinear sampling on the field-corrected `load_local_2mpp` catalogue, mean 1+δ ≈ 2.1 (48%
+of galaxies in overdensities) — galaxies trace the reconstruction, as they must. So: conditioning
+field = **Manticore** (equatorial frame); 2M++ supplies the dense galaxy catalogue; CF4 supplies
+direct distances for the sparse distance tracers + an independent velocity check.
 
 ## Open decisions (resolved 2026-06-22: 2M++ galaxies + CF4 distances; Manticore field; supergalactic frame)
 
