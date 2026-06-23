@@ -27,3 +27,7 @@ data/boss/veto/
 
 # local-neighborhood completed catalogs (regenerable via pipeline/build_local_release.py; large in full mode)
 data_release/local/*.npz
+
+# local-neighborhood texture atlas (regenerable via pipeline/build_texture_atlas.py; large sheets)
+docs/visualizer-local/data/atlas/
+docs/visualizer-local/data/atlas_galaxies.npz
