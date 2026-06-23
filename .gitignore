@@ -29,5 +29,5 @@ data/boss/veto/
 data_release/local/*.npz
 
 # local-neighborhood texture atlas (regenerable via pipeline/build_texture_atlas.py; large sheets)
-docs/visualizer-local/data/atlas/
-docs/visualizer-local/data/atlas_galaxies.npz
+# the textured viewer (docs/local_viewer_textured.html) embeds its textures, so the atlas dir is build-only
+docs/visualizer-local/data/

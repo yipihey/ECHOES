@@ -59,7 +59,7 @@ def _tangent_basis(xyz):
     return n, east, north
 
 
-def _textured_meshes(plot, atlas_dir, size_boost, max_tex, rng):
+def _textured_meshes(plot, atlas_dir, size_boost, max_tex, rng, tex_quality=88):
     """Add one atlas-textured k3d.mesh of sky-tangent galaxy-image quads per atlas sheet."""
     import k3d
     from PIL import Image
@@ -103,9 +103,9 @@ def _textured_meshes(plot, atlas_dir, size_boost, max_tex, rng):
             F[j * 2 + 0] = (base + 0, base + 1, base + 2)
             F[j * 2 + 1] = (base + 0, base + 2, base + 3)
         img = Image.open(os.path.join(atlas_dir, m["sheets"][s]["file"])).convert("RGB")
-        buf = io.BytesIO(); img.save(buf, "JPEG", quality=88)   # k3d texture: jpg bytes
+        buf = io.BytesIO(); img.save(buf, "JPEG", quality=tex_quality)   # k3d texture: jpg bytes
         plot += k3d.mesh(V, F, uvs=UV.astype(np.float32), texture=buf.getvalue(),
-                         texture_file_format="jpg", flat_shading=False,
+                         texture_file_format="jpg", flat_shading=False, side="double",
                          name=f"galaxy images (sheet {s}, {len(sel)})")
     return len(have)
 
@@ -121,6 +121,7 @@ def main():
     ap.add_argument("--size-boost", type=float, default=30.0,
                     help="exaggerate textured-quad size for the static demonstrator (1=true scale)")
     ap.add_argument("--max-tex", type=int, default=4000, help="cap textured galaxies in the snapshot")
+    ap.add_argument("--tex-quality", type=int, default=88, help="embedded atlas JPEG quality")
     ap.add_argument("--out", default="docs/local_viewer.html")
     args = ap.parse_args()
     import k3d
@@ -145,7 +146,8 @@ def main():
 
     n_tex = 0
     if args.atlas_dir:
-        n_tex = _textured_meshes(plot, args.atlas_dir, args.size_boost, args.max_tex, rng)
+        n_tex = _textured_meshes(plot, args.atlas_dir, args.size_boost, args.max_tex, rng,
+                                 tex_quality=args.tex_quality)
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w") as f:
