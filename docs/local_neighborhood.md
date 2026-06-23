@@ -152,6 +152,51 @@ completed galaxies in comoving 3D — the ZoA fills highlighted, reconstructed b
 Further work: galaxy bias from the measured clustering (not just the mean-δ match); a Schechter
 cross-check of the data-driven LF; SHA/manifest for a versioned release; the full 80-member ensemble.
 
+## Sharp inpainting contrast — the log-Gaussian (lognormal) field (shipped)
+
+The first ZoA/faint fills looked **smoother** than the observed clustering: the `λ ∝ (1+δ)^b`
+intensity with `b` calibrated to the observed *mean* over-density drives `b` **sub-linear (≈0.4)**,
+which compresses the field's dynamic range — voids fill in, peaks flatten. The smoothing was in the
+*sampling*, not the field (the Manticore `1+δ` spans 0.03–861). The fix adopts the **lognormal field
+model** (`log ρ = log(1+δ)` Gaussian) as the sampling prior, so the fills carry the observed sharp,
+skewed contrast.
+
+`echoes/local_completion.py` now defaults to `intensity="transform"` (`"bias"` = the old power-law,
+kept as a fallback). `observed_cic_transform` measures the **observed 2M++ counts-in-cells PDF** at
+the Manticore voxel scale (3.9 Mpc), restricted to fully observed-footprint voxels (`d<d_complete`,
+outside the ZoA, `sel_map>0`), and fits a **lognormal `DensityTransform`** to it (shot-noise-free via
+factorial moments). The Cox intensity is then `T(rank_gaussianize(1+δ))`: the Manticore field is
+rank-gaussianized against its own width and pushed through `T`, imposing the **observed** one-point
+PDF on the fill while preserving the field's structure (monotone ⇒ rank order intact). The per-shell
+mean-1 normalisation is kept, so the fill stays mass-conserving — the transform only sharpens the
+*shape*.
+
+**Result (`validation/local_contrast.py`, A/B at 3.9 Mpc):** counts-in-cells `var/mean²`
+**0.49 → 4.99** (10.2× sharper; observed = 8.58), skew **3.24 → 7.05** (observed ≈ 7) — the painted
+fills now reach **58%** of the observed contrast (the residual gap is the intrinsic smoothness of the
+~4 Mpc reconstruction plus sparse ZoA sampling, not the sampler). `pipeline/build_local_release.py
+--intensity transform` (default) writes the sharper release; rebuild the viewer to see it.
+
+### A note on the BOSS graphGP engine (`lognormal=True`) — calibration tradeoff
+
+The same lognormal field is wired into the BOSS engine: `generative.build_generative_model(
+lognormal=True)` makes the sampled field `1+δ=exp(g)` via the rank-preserving lognormal transform.
+Two honest findings bound its use there:
+
+- A **native** log-Gaussian conditioning of the graphGP is **not viable**: the engine conditions on
+  galaxy *positions* with a delta-function observation `y=1/n̄` (valid for linear δ), and
+  exponentiating that explodes (`⟨1+δ⟩` reached ~2×10⁶ in testing). A native log field would need an
+  iterative binned-count LGCP Laplace solve (future work).
+- Even the rank-preserving transform **degrades the per-object redshift PIT** for BOSS z-completion
+  (`validation/object_pit.py`: KS 0.085→0.18, χ²/dof 48→250 across seeds). In the z-path the field is
+  a *weight*, `p(z) ∝ (1+δ(z))·n̄(z)·p_photoz(z)`; sharpening `1+δ` reweights *across z* within a
+  sightline — monotone in the field amplitude but **not** in z — so the redshift draw becomes
+  overconfident. Rank-preservation of the field does not imply redshift-PIT preservation.
+
+So `lognormal` stays **OFF by default** for BOSS; its clean win — sharp spatial contrast at no z-PIT
+cost — is the **local Cox-sampling path above**, which samples *positions* rather than reweighting
+redshifts. That is exactly where the user's symptom (smooth ZoA/faint fills) lives, and it is fixed.
+
 ## Open decisions (resolved 2026-06-22: 2M++ galaxies + CF4 distances; Manticore field; **equatorial** frame)
 
 1. **Anchor galaxy catalog:** 2M++ (Manticore's own input; near-full-sky, ZoA-masked) vs the
