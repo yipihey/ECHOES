@@ -53,6 +53,9 @@ def main():
                     help="size exaggeration (1.0 = true physical scale; bump for overview framing)")
     ap.add_argument("--max-tex", type=int, default=None, help="cap textured galaxies (brightest first)")
     ap.add_argument("--tex-quality", type=int, default=88, help="embedded atlas JPEG quality")
+    ap.add_argument("--tex-downscale", type=int, default=1,
+                    help="downscale each atlas sheet by this factor before embedding (UVs are "
+                         "normalized, so this only trades tile resolution for HTML size + VRAM)")
     ap.add_argument("--out", default="docs/local_viewer_fork.html")
     args = ap.parse_args()
     import k3d
@@ -98,6 +101,9 @@ def main():
         if len(sel) == 0:
             continue
         img = Image.open(os.path.join(args.atlas_dir, m["sheets"][s]["file"])).convert("RGB")
+        if args.tex_downscale > 1:
+            img = img.resize((img.width // args.tex_downscale, img.height // args.tex_downscale),
+                             Image.LANCZOS)
         buf = io.BytesIO(); img.save(buf, "JPEG", quality=args.tex_quality)
         plot += k3d.textured_points(
             positions=xyz[sel], atlas_uv=rects[sel], sizes=diam[sel],
