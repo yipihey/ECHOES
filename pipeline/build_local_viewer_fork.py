@@ -56,6 +56,9 @@ def main():
     ap.add_argument("--tex-downscale", type=int, default=1,
                     help="downscale each atlas sheet by this factor before embedding (UVs are "
                          "normalized, so this only trades tile resolution for HTML size + VRAM)")
+    ap.add_argument("--veusz", default=None,
+                    help="path (relative to the viewer HTML) to a .vsz figure to embed as a "
+                         "collapsible browser-editable overlay (e.g. figs/local_completion.vsz)")
     ap.add_argument("--out", default="docs/local_viewer_fork.html")
     args = ap.parse_args()
     import k3d
@@ -112,9 +115,34 @@ def main():
             name=f"galaxy images (sheet {s}, {len(sel)})")
         n_tex += len(sel)
 
+    # optional: inject a collapsible, browser-editable Veusz figure overlay (merge the Veusz work
+    # into the viewer). The figure shows a static poster instantly and boots the WASM editor on click.
+    add_js = ""
+    if args.veusz:
+        import json as _json
+        from tools.veusz_vsz import embed_tag, EMBED_SCRIPT_VERSION
+        fig_html = embed_tag(args.veusz, width=720, height=360)
+        embed_src = f"https://yipihey.github.io/veusz/embed/{EMBED_SCRIPT_VERSION}/veusz-embed.js"
+        add_js = (
+            "(function(){"
+            "var s=document.createElement('script');s.type='module';"
+            f"s.src={_json.dumps(embed_src)};document.head.appendChild(s);"
+            "var p=document.createElement('div');"
+            "p.style.cssText='position:fixed;right:12px;bottom:12px;width:744px;max-width:46vw;"
+            "background:rgba(11,11,15,0.93);border:1px solid #333;border-radius:8px;padding:6px;"
+            "z-index:9999;box-shadow:0 4px 18px rgba(0,0,0,0.6)';"
+            "p.innerHTML='<div style=\"display:flex;justify-content:space-between;align-items:center;"
+            "color:#ccc;font:13px sans-serif;padding:2px 4px\"><b>Completion summary "
+            "(click to edit)</b><button id=\"vzx\" style=\"background:#222;color:#ccc;border:1px "
+            "solid #444;border-radius:4px;cursor:pointer\">hide</button></div>'+"
+            f"{_json.dumps(fig_html)};"
+            "document.body.appendChild(p);"
+            "document.getElementById('vzx').onclick=function(){p.style.display='none';};"
+            "})();")
+
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w") as f:
-        f.write(plot.get_snapshot())
+        f.write(plot.get_snapshot(additional_js_code=add_js) if add_js else plot.get_snapshot())
     print(f"wrote {args.out} ({os.path.getsize(args.out)/1e6:.1f} MB) — {n_tex:,} camera-facing "
           f"galaxy-image billboards (true scale x{args.size_scale}) + observed/completed points "
           f"(mcmc{args.mcmc}); self-contained fork snapshot.")

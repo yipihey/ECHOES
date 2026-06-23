@@ -1,0 +1,456 @@
+# Veusz saved document (version 4.2)
+SetCompatLevel(0)
+Set('width', '30cm')
+Set('height', '13cm')
+Set('StyleSheet/Font/font', 'Helvetica')
+Set('StyleSheet/Font/size', '11pt')
+Set('StyleSheet/axis/Line/width', '0.8pt')
+ImportString('d1x(numeric)','''
+5.000000e+00
+1.500000e+01
+2.500000e+01
+3.500000e+01
+4.500000e+01
+5.500000e+01
+6.500000e+01
+7.500000e+01
+8.500000e+01
+9.500000e+01
+1.050000e+02
+1.150000e+02
+1.250000e+02
+1.350000e+02
+1.450000e+02
+1.550000e+02
+1.650000e+02
+1.750000e+02
+1.850000e+02
+1.950000e+02
+2.050000e+02
+2.150000e+02
+2.250000e+02
+2.350000e+02
+2.450000e+02
+2.550000e+02
+2.650000e+02
+2.750000e+02
+2.850000e+02
+2.950000e+02
+''')
+ImportString('d1y(numeric)','''
+2.080000e+02
+4.240000e+02
+9.360000e+02
+1.248000e+03
+1.420000e+03
+2.247000e+03
+2.529000e+03
+2.790000e+03
+3.363000e+03
+3.082000e+03
+3.298000e+03
+3.745000e+03
+4.055000e+03
+3.785000e+03
+3.504000e+03
+3.416000e+03
+3.025000e+03
+3.152000e+03
+2.768000e+03
+2.292000e+03
+2.132000e+03
+2.255000e+03
+2.112000e+03
+2.051000e+03
+1.875000e+03
+1.603000e+03
+1.290000e+03
+1.270000e+03
+1.094000e+03
+8.070000e+02
+''')
+ImportString('d2x(numeric)','''
+5.000000e+00
+1.500000e+01
+2.500000e+01
+3.500000e+01
+4.500000e+01
+5.500000e+01
+6.500000e+01
+7.500000e+01
+8.500000e+01
+9.500000e+01
+1.050000e+02
+1.150000e+02
+1.250000e+02
+1.350000e+02
+1.450000e+02
+1.550000e+02
+1.650000e+02
+1.750000e+02
+1.850000e+02
+1.950000e+02
+2.050000e+02
+2.150000e+02
+2.250000e+02
+2.350000e+02
+2.450000e+02
+2.550000e+02
+2.650000e+02
+2.750000e+02
+2.850000e+02
+2.950000e+02
+''')
+ImportString('d2y(numeric)','''
+2.100000e+01
+1.000000e+02
+3.060000e+02
+5.600000e+02
+8.630000e+02
+1.478000e+03
+2.022000e+03
+2.936000e+03
+3.651000e+03
+4.468000e+03
+5.457000e+03
+6.511000e+03
+7.203000e+03
+8.122000e+03
+9.270000e+03
+1.081700e+04
+1.259900e+04
+1.423400e+04
+1.685200e+04
+1.889400e+04
+2.039900e+04
+2.271600e+04
+2.506300e+04
+2.739300e+04
+2.984300e+04
+3.403900e+04
+3.553600e+04
+3.939700e+04
+4.234200e+04
+4.311200e+04
+''')
+ImportString('d3x(numeric)','''
+5.000000e+00
+1.500000e+01
+2.500000e+01
+3.500000e+01
+4.500000e+01
+5.500000e+01
+6.500000e+01
+7.500000e+01
+8.500000e+01
+9.500000e+01
+1.050000e+02
+1.150000e+02
+1.250000e+02
+1.350000e+02
+1.450000e+02
+1.550000e+02
+1.650000e+02
+1.750000e+02
+1.850000e+02
+1.950000e+02
+2.050000e+02
+2.150000e+02
+2.250000e+02
+2.350000e+02
+2.450000e+02
+2.550000e+02
+2.650000e+02
+2.750000e+02
+2.850000e+02
+2.950000e+02
+''')
+ImportString('d3y(numeric)','''
+0.000000e+00
+0.000000e+00
+0.000000e+00
+0.000000e+00
+2.000000e+00
+1.970000e+02
+6.240000e+02
+1.278000e+03
+2.015000e+03
+3.348000e+03
+4.478000e+03
+6.074000e+03
+7.750000e+03
+1.008400e+04
+1.227500e+04
+1.390700e+04
+1.616100e+04
+1.824900e+04
+2.007800e+04
+2.174500e+04
+2.524700e+04
+2.800400e+04
+3.027900e+04
+3.339500e+04
+3.601000e+04
+3.763000e+04
+4.175400e+04
+4.355000e+04
+4.748100e+04
+4.836700e+04
+''')
+ImportString('d4x(numeric)','''
+3.250000e+00
+3.750000e+00
+4.250000e+00
+4.750000e+00
+5.250000e+00
+5.750000e+00
+6.250000e+00
+6.750000e+00
+7.250000e+00
+7.750000e+00
+8.250000e+00
+8.750000e+00
+9.250000e+00
+9.750000e+00
+1.025000e+01
+1.075000e+01
+1.125000e+01
+1.175000e+01
+1.225000e+01
+1.275000e+01
+1.325000e+01
+1.375000e+01
+1.425000e+01
+1.475000e+01
+1.525000e+01
+1.575000e+01
+''')
+ImportString('d4y(numeric)','''
+0.000000e+00
+0.000000e+00
+2.000000e+00
+3.000000e+00
+2.000000e+00
+8.000000e+00
+2.200000e+01
+4.200000e+01
+8.700000e+01
+1.510000e+02
+2.610000e+02
+5.280000e+02
+9.020000e+02
+1.994000e+03
+3.768000e+03
+7.223000e+03
+1.366200e+04
+1.435900e+04
+2.464800e+04
+3.040000e+02
+0.000000e+00
+0.000000e+00
+0.000000e+00
+0.000000e+00
+0.000000e+00
+0.000000e+00
+''')
+ImportString('d5x(numeric)','''
+3.250000e+00
+3.750000e+00
+4.250000e+00
+4.750000e+00
+5.250000e+00
+5.750000e+00
+6.250000e+00
+6.750000e+00
+7.250000e+00
+7.750000e+00
+8.250000e+00
+8.750000e+00
+9.250000e+00
+9.750000e+00
+1.025000e+01
+1.075000e+01
+1.125000e+01
+1.175000e+01
+1.225000e+01
+1.275000e+01
+1.325000e+01
+1.375000e+01
+1.425000e+01
+1.475000e+01
+1.525000e+01
+1.575000e+01
+''')
+ImportString('d5y(numeric)','''
+0.000000e+00
+0.000000e+00
+0.000000e+00
+0.000000e+00
+0.000000e+00
+0.000000e+00
+0.000000e+00
+0.000000e+00
+0.000000e+00
+0.000000e+00
+0.000000e+00
+0.000000e+00
+0.000000e+00
+0.000000e+00
+0.000000e+00
+0.000000e+00
+2.000000e+00
+2.947300e+04
+5.034700e+04
+7.302300e+04
+9.042700e+04
+9.823300e+04
+8.740900e+04
+6.282900e+04
+2.064100e+04
+0.000000e+00
+''')
+Add('page', name='page1', autoadd=False)
+To('page1')
+Add('grid', name='grid1', autoadd=False)
+To('grid1')
+Set('rows', 1)
+Set('columns', 2)
+Set('leftMargin', '0.4cm')
+Set('rightMargin', '0.2cm')
+Set('topMargin', '0.2cm')
+Set('bottomMargin', '0.4cm')
+Set('internalMargin', '0.5cm')
+Add('graph', name='g0', autoadd=False)
+To('g0')
+Add('axis', name='x', autoadd=False)
+To('x')
+Set('label', 'comoving distance [Mpc]')
+Set('min', 0.0)
+Set('max', 300.0)
+Set('log', False)
+To('..')
+Add('axis', name='y', autoadd=False)
+To('y')
+Set('label', 'galaxies / 10 Mpc shell')
+Set('min', 'Auto')
+Set('max', 'Auto')
+Set('log', False)
+Set('direction', 'vertical')
+To('..')
+Add('label', name='title', autoadd=False)
+To('title')
+Set('label', 'True-3D completion vs distance')
+Set('xPos', [0.5])
+Set('yPos', [1.04])
+Set('alignHorz', 'centre')
+Set('Text/size', '11pt')
+To('..')
+Add('xy', name='xy1', autoadd=False)
+To('xy1')
+Set('xData', 'd1x')
+Set('yData', 'd1y')
+Set('marker', 'circle')
+Set('markerSize', '3pt')
+Set('key', 'observed 2M++')
+Set('PlotLine/hide', False)
+Set('PlotLine/color', '#9aa0a6')
+Set('PlotLine/style', 'solid')
+Set('PlotLine/width', '1.5pt')
+Set('MarkerFill/color', '#9aa0a6')
+Set('MarkerLine/color', '#9aa0a6')
+Set('MarkerLine/transparency', 0)
+Set('MarkerFill/transparency', 0)
+To('..')
+Add('xy', name='xy2', autoadd=False)
+To('xy2')
+Set('xData', 'd2x')
+Set('yData', 'd2y')
+Set('marker', 'square')
+Set('markerSize', '3pt')
+Set('key', 'completed: ZoA')
+Set('PlotLine/hide', False)
+Set('PlotLine/color', '#ff3b30')
+Set('PlotLine/style', 'solid')
+Set('PlotLine/width', '1.5pt')
+Set('MarkerFill/color', '#ff3b30')
+Set('MarkerLine/color', '#ff3b30')
+Set('MarkerLine/transparency', 0)
+Set('MarkerFill/transparency', 0)
+To('..')
+Add('xy', name='xy3', autoadd=False)
+To('xy3')
+Set('xData', 'd3x')
+Set('yData', 'd3y')
+Set('marker', 'triangle')
+Set('markerSize', '3pt')
+Set('key', 'completed: faint-end')
+Set('PlotLine/hide', False)
+Set('PlotLine/color', '#3a78ff')
+Set('PlotLine/style', 'solid')
+Set('PlotLine/width', '1.5pt')
+Set('MarkerFill/color', '#3a78ff')
+Set('MarkerLine/color', '#3a78ff')
+Set('MarkerLine/transparency', 0)
+Set('MarkerFill/transparency', 0)
+To('..')
+To('..')
+Add('graph', name='g1', autoadd=False)
+To('g1')
+Add('axis', name='x', autoadd=False)
+To('x')
+Set('label', 'K_s apparent magnitude')
+Set('min', 3.0)
+Set('max', 16.0)
+Set('log', False)
+To('..')
+Add('axis', name='y', autoadd=False)
+To('y')
+Set('label', 'galaxies / 0.5 mag')
+Set('min', 'Auto')
+Set('max', 'Auto')
+Set('log', False)
+Set('direction', 'vertical')
+To('..')
+Add('label', name='title', autoadd=False)
+To('title')
+Set('label', 'Flux-limit completion (K_s)')
+Set('xPos', [0.5])
+Set('yPos', [1.04])
+Set('alignHorz', 'centre')
+Set('Text/size', '11pt')
+To('..')
+Add('xy', name='xy4', autoadd=False)
+To('xy4')
+Set('xData', 'd4x')
+Set('yData', 'd4y')
+Set('marker', 'none')
+Set('markerSize', '3pt')
+Set('key', 'observed')
+Set('PlotLine/hide', False)
+Set('PlotLine/color', '#9aa0a6')
+Set('PlotLine/style', 'solid')
+Set('PlotLine/width', '1.5pt')
+Set('MarkerFill/color', '#9aa0a6')
+Set('MarkerLine/color', '#9aa0a6')
+Set('MarkerLine/transparency', 0)
+Set('MarkerFill/transparency', 0)
+To('..')
+Add('xy', name='xy5', autoadd=False)
+To('xy5')
+Set('xData', 'd5x')
+Set('yData', 'd5y')
+Set('marker', 'none')
+Set('markerSize', '3pt')
+Set('key', 'faint-restored')
+Set('PlotLine/hide', False)
+Set('PlotLine/color', '#3a78ff')
+Set('PlotLine/style', 'dashed')
+Set('PlotLine/width', '1.5pt')
+Set('MarkerFill/color', '#3a78ff')
+Set('MarkerLine/color', '#3a78ff')
+Set('MarkerLine/transparency', 0)
+Set('MarkerFill/transparency', 0)
+To('..')
+To('..')
+To('..')
+To('..')
