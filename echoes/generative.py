@@ -122,6 +122,13 @@ def build_generative_model(catalog, *, n_samples=1, seed=0, transform="identity"
     # the rank-preserving lognormal DensityTransform of the calibrated Gaussian conditional posterior.
     # (A *native* log conditioning is avoided — the delta-function observation y=1/n̄ exponentiates
     # catastrophically; a native log field would need a binned-count LGCP Laplace solve.)
+    #
+    # CAVEAT (validation/object_pit.py): in the *redshift-completion* path the field enters as a WEIGHT
+    # p(z) ∝ (1+δ(z))·n̄(z)·p_photoz(z). The lognormal map is rank-preserving in the field amplitude, but
+    # NOT in z — sharpening (1+δ) reweights across z within a sightline, concentrating the redshift draw,
+    # which DEGRADES the per-object redshift PIT (overconfident; KS 0.085→0.18, χ²/dof 48→250 on CMASS-S).
+    # So lognormal stays OFF by default for BOSS z-completion; its clean win — sharp spatial contrast with
+    # no z-PIT cost — is the local Cox-sampling path (echoes.local_completion, intensity='transform').
     if lognormal and transform == "identity" and transform_obj is None:
         transform = "lognormal"
     if field_ctx is None:
