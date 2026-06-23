@@ -100,7 +100,7 @@ def _cic_overdensity(catalog, *, R=8.0, n_cells=8000, seed=3, randoms=None, retu
 def build_generative_model(catalog, *, n_samples=1, seed=0, transform="identity",
                            transform_obj=None, cic_R=8.0, cic_randoms=None, deconv=True,
                            sp_reference=False, field_ctx=None, fieldpost_kwargs=None,
-                           sp_kwargs=None, verbose=False) -> GenerativeModel:
+                           sp_kwargs=None, lognormal=False, verbose=False) -> GenerativeModel:
     """Assemble a :class:`GenerativeModel`.
 
     Parameters
@@ -118,6 +118,12 @@ def build_generative_model(catalog, *, n_samples=1, seed=0, transform="identity"
         Reuse a prebuilt context (amortise ξ→kernel across an ensemble).
     """
     from .fieldpost import build_field_context
+    # log-Gaussian (lognormal) field: the SAMPLED field is 1+δ = exp(g) (log ρ Gaussian), realised by
+    # the rank-preserving lognormal DensityTransform of the calibrated Gaussian conditional posterior.
+    # (A *native* log conditioning is avoided — the delta-function observation y=1/n̄ exponentiates
+    # catastrophically; a native log field would need a binned-count LGCP Laplace solve.)
+    if lognormal and transform == "identity" and transform_obj is None:
+        transform = "lognormal"
     if field_ctx is None:
         field_ctx = build_field_context(catalog, seed=seed, n_samples=n_samples,
                                         verbose=verbose, **(fieldpost_kwargs or {}))

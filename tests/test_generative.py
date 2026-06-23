@@ -63,6 +63,28 @@ def test_los_transform_reshapes_field_preserving_rank():
     assert np.all(np.diff(out[0][i]) >= -1e-6)
 
 
+def test_lognormal_flag_selects_lognormal_field():
+    """build_generative_model(lognormal=True) makes the sampled field 1+δ=exp(g) via the
+    rank-preserving lognormal transform (log ρ Gaussian)."""
+    from types import SimpleNamespace
+    from echoes.generative import build_generative_model
+    from echoes.fieldpost import FieldContext
+    from echoes.field_kernel import tabulate_kernel
+    rng = np.random.default_rng(5)
+    r = np.linspace(1, 40, 30); xi = 0.8 * np.exp(-(r / 6.0) ** 1.5)
+    cov, _ = tabulate_kernel(r, xi); cov = (np.asarray(cov[0]), np.asarray(cov[1]))
+    fc = FieldContext(x_obs=np.zeros((10, 3)), nhat_obs=np.tile([1.0, 0, 0], (10, 1)),
+                      cov=cov, nbar=0.01, z_centres=np.linspace(0.4, 0.6, 8),
+                      nz_profile=np.ones(8), neigh_chord=0.1, max_neigh=50, n_samples=1)
+    cl = rng.uniform([150, 0, 0.45], [155, 5, 0.6], (8, 3))         # clumpy → CiC contrast
+    g = cl[rng.integers(0, 8, 3000)] + rng.normal(0, 0.2, (3000, 3))
+    cat = SimpleNamespace(ra_data=g[:, 0], dec_data=g[:, 1], z_data=g[:, 2],
+                          ra_random=rng.uniform(150, 155, 30000),
+                          dec_random=rng.uniform(0, 5, 30000), z_random=rng.uniform(0.45, 0.6, 30000))
+    gm = build_generative_model(cat, field_ctx=fc, lognormal=True, cic_R=5.0)
+    assert gm.transform.kind == "lognormal" and gm.los_transform() is not None
+
+
 def test_cic_overdensity_shape():
     from types import SimpleNamespace
     from echoes.generative import _cic_overdensity

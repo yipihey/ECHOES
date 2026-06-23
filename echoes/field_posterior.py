@@ -196,6 +196,13 @@ def conditional_overdensity_los(
     estimate lacks — and extends into data-poor stretches via the kernel rather
     than reverting blindly to the mean.
 
+    (A sharp, skewed lognormal contrast is obtained downstream by the rank-
+    preserving ``DensityTransform`` — ``generative.build_generative_model(lognormal=True)``
+    — which maps this Gaussian posterior to ``1+δ=exp(g)``. A *native* log-Gaussian
+    conditioning is not used here: the delta-function observation ``y=1/n̄`` is a
+    linear-δ quantity that exponentiates catastrophically, so a native log field
+    would need a binned-count LGCP Laplace solve.)
+
     Returns ``(opd_mean, opd_var)`` (both ``(N_*,)``), and, if ``n_samples>0``,
     also ``opd_samples`` ``(n_samples, N_*)`` (Matheron draws). All ``1+δ`` are
     floored at 0.
