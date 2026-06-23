@@ -197,6 +197,42 @@ So `lognormal` stays **OFF by default** for BOSS; its clean win — sharp spatia
 cost — is the **local Cox-sampling path above**, which samples *positions* rather than reweighting
 redshifts. That is exactly where the user's symptom (smooth ZoA/faint fills) lives, and it is fixed.
 
+## Textured 3D viewer — real galaxy images as billboards (shipped)
+
+The points-only viewer renders galaxies as flat dots; this layer shows each **real galaxy image** as
+a billboard that resolves as the camera approaches. The image-source problem (no single deep survey
+covers the all-sky, ZoA-masked, 300-Mpc volume) is solved with a **per-galaxy best-available-survey
+waterfall** fetched through one API — CDS **`hips2fits`**: DESI Legacy DR10 color → Pan-STARRS1 →
+DSS2 color / 2MASS (near-IR first in the Zone of Avoidance). The catalog's missing geometry is filled
+by a **HyperLEDA** cross-match (VizieR VII/237, all-sky; 84% of K<11.5, 92% of K<10 matched → real
+angular size, axis ratio, position angle; SGA-2020 is an optional deeper Legacy-footprint layer).
+
+**Pipeline.**
+- `echoes/surveys/galaxy_geometry.py` — per-galaxy angular size (measured D25 or a K-band
+  size–luminosity estimate), `b/a`, PA, morphology, and the sky-position survey preference.
+- `data/fetch_hyperleda.py` (+ `data/fetch_sga.py` scaffold) — the geometry cross-match tables.
+- `pipeline/build_texture_atlas.py` — resumable `hips2fits` fetch (browser UA + retry/backoff + rate
+  limit; rejects no-coverage **and** saturated tiles, falling through the waterfall), packed into
+  4096²/128px atlas sheets → `atlas_galaxies.npz` + `atlas_manifest.json`. Reads only the PROV=0
+  observed catalog, so synthetic (PROV=5) galaxies are **never** textured. `--revalidate` re-checks
+  cached tiles against the current quality test.
+
+**Two viewers.**
+- **Stock-k3d (Stage A)** — `pipeline/build_local_viewer.py --atlas-dir …`: one atlas-textured
+  `k3d.mesh` of sky-tangent quads per sheet (world-fixed, so size-exaggerated for a static snapshot).
+  Ships self-contained → `docs/local_viewer_textured.html`.
+- **Custom k3d fork (Stage B)** — `pipeline/build_local_viewer_fork.py` (needs the fork on
+  `PYTHONPATH`): the fork adds a **`TexturedPoints`** object — instanced, **camera-facing**,
+  true-physical-scale billboards (oriented by `b/a`+PA, sky keyed transparent by luminance so galaxies
+  glow in 3D). True scale + the points layer give implicit level-of-detail (far = points, the image
+  resolves on approach). The fork lives in the `echoes-k3d` repo (new JS object + GLSL shaders +
+  Python factory; `webpack` build embeds the renderer in a self-contained `snapshot_type='full'`
+  snapshot — no CDN).
+
+**Quality.** Contact-sheet QA shows ~98% clean galaxy images after the saturation-aware revalidation
+(residual artifacts are rare 2MASS ZoA-fallback tiles). The large atlas sheets + fork-viewer HTML are
+gitignored (regenerable); the stock textured viewer is committed.
+
 ## Open decisions (resolved 2026-06-22: 2M++ galaxies + CF4 distances; Manticore field; **equatorial** frame)
 
 1. **Anchor galaxy catalog:** 2M++ (Manticore's own input; near-full-sky, ZoA-masked) vs the
