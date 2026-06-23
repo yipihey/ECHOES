@@ -196,6 +196,18 @@ def conditional_overdensity_los(
     estimate lacks — and extends into data-poor stretches via the kernel rather
     than reverting blindly to the mean.
 
+    (A sharp, skewed lognormal contrast is obtained downstream by the rank-
+    preserving ``DensityTransform`` — ``generative.build_generative_model(lognormal=True)``
+    — which maps this Gaussian posterior to ``1+δ=exp(g)``. A *native* log-Gaussian
+    conditioning is not used here: the delta-function observation ``y=1/n̄`` is a
+    linear-δ quantity that exponentiates catastrophically, so a native log field
+    would need a binned-count LGCP Laplace solve. Note further that, while the
+    lognormal map is rank-preserving in the field *amplitude*, in the redshift-
+    completion path the field acts as a *weight* ``p(z) ∝ (1+δ(z))·n̄(z)·p_photoz(z)``;
+    sharpening ``1+δ`` reweights across ``z`` and is **not** redshift-rank-preserving,
+    so it degrades the per-object redshift PIT — lognormal's clean home is the spatial
+    Cox-sampling path, not BOSS z-completion. See ``validation/object_pit.py``.)
+
     Returns ``(opd_mean, opd_var)`` (both ``(N_*,)``), and, if ``n_samples>0``,
     also ``opd_samples`` ``(n_samples, N_*)`` (Matheron draws). All ``1+δ`` are
     floored at 0.

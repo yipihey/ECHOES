@@ -6,6 +6,9 @@ dist/
 .ipynb_checkpoints/
 # local data + caches (fetched via data/fetch_*.py; see DATA.md)
 /data/boss
+# local-neighborhood reconstructions (CF4/BORG/Manticore; fetched via data/fetch_cf4.py etc.)
+data/local/*
+!data/local/README.md
 /output/
 # latex build artifacts
 paper/*.aux
@@ -21,3 +24,6 @@ paper/*Notes.bib
 
 # BOSS veto mangle masks (~1GB, downloaded from SDSS SAS; cached analytic selection is committed instead)
 data/boss/veto/
+
+# local-neighborhood completed catalogs (regenerable via pipeline/build_local_release.py; large in full mode)
+data_release/local/*.npz

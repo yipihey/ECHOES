@@ -67,16 +67,27 @@ def main():
     dz = measure_close_pair_dz(obs, 62/3600.)
     print(f"inject-and-recover: {len(true_z):,} missing galaxies with known true z")
 
+    cic_rand = (np.asarray(cat.ra_random), np.asarray(cat.dec_random), np.asarray(cat.z_random))
     fctx = build_field_context(obs, seed=args.seed, n_samples=1, sel_map=cat.sel_map, nside=cat.nside)
     gm_id = build_generative_model(obs, transform="identity", field_ctx=fctx)
     gm_t = build_generative_model(obs, transform="empirical", cic_R=args.cic_R,
-                                  field_ctx=fctx, cic_randoms=(np.asarray(cat.ra_random),
-                                  np.asarray(cat.dec_random), np.asarray(cat.z_random)))
+                                  field_ctx=fctx, cic_randoms=cic_rand)
+    # log-Gaussian field prior (log rho Gaussian): 1+delta = exp(g) via the
+    # lognormal transform. NB the transform is rank-preserving in the FIELD
+    # amplitude, but the redshift completion uses the field as a WEIGHT,
+    # p(z) ~ (1+delta(z))*nbar(z)*p_photoz(z); sharpening (1+delta) reweights
+    # across z within a sightline (not a monotone map of z), so the redshift PIT
+    # is NOT preserved — empirically it degrades (overconfident draws). This arm
+    # documents that tradeoff: lognormal sharpens spatial contrast (its win is the
+    # local Cox-sampling path) but is not calibration-neutral for BOSS z-completion.
+    gm_ln = build_generative_model(obs, lognormal=True, cic_R=args.cic_R,
+                                   field_ctx=fctx, cic_randoms=cic_rand)
 
     pkgs = {
         "field": build_package(obs, tg, pz, dz_pool=dz),
         "gen-ident": build_package_generative(obs, tg, pz, gm_id, dz_pool=dz),
         "gen-transf": build_package_generative(obs, tg, pz, gm_t, dz_pool=dz),
+        "gen-lognormal": build_package_generative(obs, tg, pz, gm_ln, dz_pool=dz),
     }
     print(f"\n=== object-level redshift PIT uniformity (PASS: KS & χ² p ≳ 0.05) ===")
     stats = {}
@@ -87,9 +98,14 @@ def main():
         print(f"  {name:11s} {format_pit(pu)}")
     ok = (stats["gen-transf"]["ks_p"] >= 0.05 and stats["gen-transf"]["chi2_p"] >= 0.05)
     no_worse = stats["gen-transf"]["ks"] <= stats["gen-ident"]["ks"] + 0.02
+    ln_no_worse = stats["gen-lognormal"]["ks"] <= stats["gen-ident"]["ks"] + 0.02
     print(f"\nG7(object) {'PASS' if ok and no_worse else 'CHECK'}: "
           f"transform {'preserves' if no_worse else 'changes'} calibration "
           f"(gen-transf KS={stats['gen-transf']['ks']:.3f} vs gen-ident KS={stats['gen-ident']['ks']:.3f})")
+    print(f"  lognormal field {'PRESERVES' if ln_no_worse else 'DEGRADES'} z-calibration "
+          f"(gen-lognormal KS={stats['gen-lognormal']['ks']:.3f} vs gen-ident KS={stats['gen-ident']['ks']:.3f}) "
+          f"— sharpening (1+delta) reweights p(z), NOT redshift-rank-preserving; "
+          f"lognormal's win is the spatial Cox-sampling path, not z-completion")
 
 
 if __name__ == "__main__":

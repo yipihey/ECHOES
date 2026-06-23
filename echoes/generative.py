@@ -100,7 +100,7 @@ def _cic_overdensity(catalog, *, R=8.0, n_cells=8000, seed=3, randoms=None, retu
 def build_generative_model(catalog, *, n_samples=1, seed=0, transform="identity",
                            transform_obj=None, cic_R=8.0, cic_randoms=None, deconv=True,
                            sp_reference=False, field_ctx=None, fieldpost_kwargs=None,
-                           sp_kwargs=None, verbose=False) -> GenerativeModel:
+                           sp_kwargs=None, lognormal=False, verbose=False) -> GenerativeModel:
     """Assemble a :class:`GenerativeModel`.
 
     Parameters
@@ -118,6 +118,19 @@ def build_generative_model(catalog, *, n_samples=1, seed=0, transform="identity"
         Reuse a prebuilt context (amortise ξ→kernel across an ensemble).
     """
     from .fieldpost import build_field_context
+    # log-Gaussian (lognormal) field: the SAMPLED field is 1+δ = exp(g) (log ρ Gaussian), realised by
+    # the rank-preserving lognormal DensityTransform of the calibrated Gaussian conditional posterior.
+    # (A *native* log conditioning is avoided — the delta-function observation y=1/n̄ exponentiates
+    # catastrophically; a native log field would need a binned-count LGCP Laplace solve.)
+    #
+    # CAVEAT (validation/object_pit.py): in the *redshift-completion* path the field enters as a WEIGHT
+    # p(z) ∝ (1+δ(z))·n̄(z)·p_photoz(z). The lognormal map is rank-preserving in the field amplitude, but
+    # NOT in z — sharpening (1+δ) reweights across z within a sightline, concentrating the redshift draw,
+    # which DEGRADES the per-object redshift PIT (overconfident; KS 0.085→0.18, χ²/dof 48→250 on CMASS-S).
+    # So lognormal stays OFF by default for BOSS z-completion; its clean win — sharp spatial contrast with
+    # no z-PIT cost — is the local Cox-sampling path (echoes.local_completion, intensity='transform').
+    if lognormal and transform == "identity" and transform_obj is None:
+        transform = "lognormal"
     if field_ctx is None:
         field_ctx = build_field_context(catalog, seed=seed, n_samples=n_samples,
                                         verbose=verbose, **(fieldpost_kwargs or {}))
