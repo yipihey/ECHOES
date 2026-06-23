@@ -80,7 +80,8 @@ def main():
                        "peculiar-velocity distances + a per-realization completion drawn from "
                        "each Manticore posterior density field. mode='full' also restores the "
                        "faint galaxies below the flux limit everywhere (volume-limited to m_faint).",
-        "mode": args.mode, "frame": "equatorial comoving [Mpc]", "H0": 68.1, "dmax_mpc": args.dmax,
+        "mode": args.mode, "intensity": args.intensity, "frame": "equatorial comoving [Mpc]",
+        "H0": 68.1, "dmax_mpc": args.dmax,
         "zoa_deg": args.zoa_deg, "m_faint": args.m_faint, "k_lim": args.k_lim,
         "base": "local_2mpp_observed.npz", "n_observed": int(cat.N_data), "realizations": meta,
         "note": "Completed catalog(realization i) = observed + local_2mpp_<mode>_mcmc<i>.npz. "
