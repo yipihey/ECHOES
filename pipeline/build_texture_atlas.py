@@ -95,12 +95,15 @@ def _fetch_jpeg(url, limiter, retries=4, timeout=45):
     return None
 
 
-def _is_blank(jpeg_bytes, *, mean_floor=6.0, bright_frac_floor=0.015, bright_level=18):
-    """True if the cutout has no real survey signal (mostly black → no coverage).
+def _is_blank(jpeg_bytes, *, mean_floor=6.0, bright_frac_floor=0.015, bright_level=18,
+             sat_frac=0.55, detail_floor=6.0):
+    """True if the cutout is unusable, so the survey waterfall should fall through.
 
-    A HiPS cutout outside a survey footprint comes back near-black rather than failing, so the
-    waterfall must reject it explicitly. Heuristic: reject when the image is both very dark on
-    average AND has almost no appreciably-bright pixels."""
+    Two failure modes: (1) **no coverage** — a HiPS cutout outside a survey footprint comes back
+    near-black rather than failing (dark mean AND almost no bright pixels); (2) **saturated /
+    no-detail** — the brightest nearby galaxies blow out to a flat white (or a single extreme hue)
+    with no structure, which reads worse than a shallower survey would. Reject when most pixels are
+    near-white OR the image has almost no spatial contrast (std below ``detail_floor``)."""
     from PIL import Image
     try:
         im = Image.open(io.BytesIO(jpeg_bytes)).convert("L")
@@ -109,7 +112,10 @@ def _is_blank(jpeg_bytes, *, mean_floor=6.0, bright_frac_floor=0.015, bright_lev
     a = np.asarray(im, dtype=np.float32)
     if a.size == 0:
         return True
-    return (a.mean() < mean_floor) and ((a > bright_level).mean() < bright_frac_floor)
+    no_coverage = (a.mean() < mean_floor) and ((a > bright_level).mean() < bright_frac_floor)
+    saturated = (a > 245).mean() > sat_frac                  # blown-out white
+    no_detail = a.std() < detail_floor                       # flat (no structure either extreme)
+    return bool(no_coverage or saturated or no_detail)
 
 
 def _select(obs, kmax, dmax, max_galaxies):
@@ -164,6 +170,14 @@ def build(args):
 
     def cutout_path(oidx):
         return os.path.join(cache_dir, f"{int(oidx):06d}.jpg")
+
+    if args.revalidate:                                       # re-check cached tiles vs the
+        bad = 0                                               # current quality test; drop failures
+        for i in range(n):                                    # so the fetch loop re-tries them
+            p = cutout_path(int(sel[i]))
+            if os.path.exists(p) and _is_blank(open(p, "rb").read()):
+                os.remove(p); fetch_log.pop(str(int(sel[i])), None); bad += 1
+        print(f"[atlas] revalidate: {bad} cached tiles failed the quality test → re-fetch")
 
     def fetch_one(i):
         oidx = int(sel[i]); key = str(oidx)
@@ -291,6 +305,8 @@ def main():
     ap.add_argument("--fov-max", type=float, default=0.5, help="max cutout FOV [deg]")
     ap.add_argument("--refetch-failed", action="store_true",
                     help="retry galaxies previously logged as no-image")
+    ap.add_argument("--revalidate", action="store_true",
+                    help="re-check cached tiles against the quality test; re-fetch any that fail")
     build(ap.parse_args())
 
 
