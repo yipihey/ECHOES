@@ -3,7 +3,16 @@ import numpy as np
 import pytest
 
 from echoes.local_completion import (galactic_b, radial_nbar, _calibrate_bias,
-                                     _ztransplant_kmag, absolute_mag, completion_uncert)
+                                     _ztransplant_kmag, absolute_mag, completion_uncert,
+                                     _rank_gaussianize)
+
+
+def test_rank_gaussianize_is_standard_normal():
+    rng = np.random.default_rng(0)
+    o = np.exp(rng.normal(0, 1.2, 50000))          # a sharply non-Gaussian (lognormal) field
+    g = _rank_gaussianize(o, o)
+    assert abs(g.mean()) < 0.05 and abs(g.std() - 1.0) < 0.05    # standard normal by rank
+    assert abs(((g - g.mean()) ** 3).mean() / g.std() ** 3) < 0.1   # skew removed
 
 
 def test_absolute_mag_distance_modulus():

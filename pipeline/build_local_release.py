@@ -37,6 +37,9 @@ def main():
     ap.add_argument("--k-lim", type=float, default=11.5, help="2M++ apparent K flux limit")
     ap.add_argument("--dmax", type=float, default=300.0, help="max distance [Mpc]")
     ap.add_argument("--zoa-deg", type=float, default=5.0)
+    ap.add_argument("--intensity", choices=["transform", "bias"], default="transform",
+                    help="'transform' (log-Gaussian, matches the observed density PDF / sharp "
+                         "contrast) or 'bias' (legacy mean-matched power-law, smoother)")
     args = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
     reals = args.realizations or available_realizations()
@@ -56,13 +59,13 @@ def main():
         tag = "full" if args.mode == "full" else "zoa"
         if args.mode == "full":
             ip = complete_local(cat, fields[m], m_faint=args.m_faint, k_lim=args.k_lim,
-                                zoa_deg=args.zoa_deg, dmax=args.dmax,
+                                zoa_deg=args.zoa_deg, dmax=args.dmax, intensity=args.intensity,
                                 uncert_fields=list(fields.values()), seed=1000 + m)
             extra = {"absmag": ip["absmag"], "uncert": ip["uncert"],
                      "kind": ip["kind"].astype("S5")}
         else:
             ip = complete_local_zoa(cat, fields[m], zoa_deg=args.zoa_deg, dmax=args.dmax,
-                                    seed=1000 + m)
+                                    intensity=args.intensity, seed=1000 + m)
             extra = {}
         p = os.path.join(OUT, f"local_2mpp_{tag}_mcmc{m}.npz")
         np.savez_compressed(p, ra=ip["ra"], dec=ip["dec"], dist_mpc=ip["dist_mpc"],

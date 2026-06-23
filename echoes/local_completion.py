@@ -58,7 +58,9 @@ def _ztransplant_kmag(d_new, donor_d, donor_k, rng, K=50):
 
 def _calibrate_bias(opd_vox, target, lo=1e-3, hi=2.0, n_iter=40):
     """Find b so galaxies sampled ∝ (1+δ)^b have density-weighted mean (1+δ) = ``target``
-    (i.e. the fill matches the observed galaxy–field relation rather than the mass field).
+    (i.e. the fill matches the observed galaxy–field MEAN relation). NOTE: a single power-law
+    exponent matches only the mean and (for sub-linear b) SMOOTHS the contrast — the
+    log-density bias below is the contrast-preserving replacement.
 
     Uses the SAME weighting as the sampler (``v**b`` with ``v = max(1+δ, 0)``; voids carry no
     weight), and bisects on b ∈ [~0, 2]. Returns ``hi`` if the target is unreachable."""
@@ -78,17 +80,69 @@ def _calibrate_bias(opd_vox, target, lo=1e-3, hi=2.0, n_iter=40):
     return 0.5 * (lo + hi)
 
 
+def _rank_gaussianize(o, ref, max_ref=200000, seed=0):
+    """Map field values ``o`` to a standard normal via the empirical CDF of ``ref`` — the
+    lognormal model's latent Gaussian field ``s = log(1+δ)`` realised by rank (exact regardless
+    of the field's shape; the reconstructed Manticore density is only approximately lognormal)."""
+    from scipy.special import ndtri
+    ref = np.asarray(ref, float)
+    if len(ref) > max_ref:
+        ref = ref[np.random.default_rng(seed).choice(len(ref), max_ref, replace=False)]
+    rs = np.sort(ref)
+    u = (np.searchsorted(rs, np.asarray(o, float), side="right") + 0.5) / (len(rs) + 1.0)
+    return ndtri(np.clip(u, 1e-6, 1.0 - 1e-6))
+
+
+def observed_cic_transform(cat, field, dmax, *, kind="lognormal", d_complete=100.0, zoa_deg=5.0):
+    """Fit a :class:`~echoes.density_transform.DensityTransform` to the OBSERVED galaxy
+    counts-in-cells at the Manticore voxel scale (the nearby complete volume) — the lognormal
+    (or empirical) galaxy-density PDF whose **variance and skew** the fill must reproduce. The
+    fit is shot-noise-free (factorial moments via ``field_moments_from_counts``)."""
+    import healpy as hp
+    from .density_transform import fit_density_transform
+    N = field.nvox; L = field.box_mpc
+    m = cat.dist_mpc < d_complete
+    r = np.radians(cat.ra_data[m]); dd = np.radians(cat.dec_data[m]); cd = np.cos(dd)
+    dist = cat.dist_mpc[m].astype(float)
+    xyz = dist[:, None] * np.column_stack([cd * np.cos(r), cd * np.sin(r), np.sin(dd)])
+    idx = np.floor((xyz + L / 2) / L * N).astype(int)
+    idx = idx[((idx >= 0) & (idx < N)).all(1)]
+    Ncnt = np.bincount((idx[:, 0] * N + idx[:, 1]) * N + idx[:, 2], minlength=N ** 3)
+    ax = ((np.arange(N) + 0.5) / N * L - L / 2).astype(np.float32)
+    X, Y, Z = np.meshgrid(ax, ax, ax, indexing="ij")
+    dg = np.sqrt(X * X + Y * Y + Z * Z)
+    inb = (dg > 5.0) & (dg < d_complete)
+    ra = np.degrees(np.arctan2(Y, X)) % 360.0
+    dec = np.degrees(np.arcsin(np.clip(Z / np.maximum(dg, 1e-6), -1.0, 1.0)))
+    obs = (inb & (np.abs(galactic_b(ra, dec)) >= zoa_deg)
+           & (cat.sel_map[hp.ang2pix(cat.nside, np.radians(90 - dec), np.radians(ra))] > 0))
+    counts = Ncnt.reshape(N, N, N)[obs].astype(float)
+    return fit_density_transform(counts / max(counts.mean(), 1e-9), kind=kind, counts=counts)
+
+
+def _modulation(o, ref, intensity, field, cat, dmax, bias, T=None):
+    """Field modulation for the Cox intensity. ``intensity='transform'`` (log-Gaussian, the
+    user's request): rank-gaussianise the field, then map through the transform ``T`` fit to the
+    OBSERVED galaxy CiC PDF — so the fill reproduces the observed variance/skew (sharp
+    voids/peaks). ``'bias'``: the legacy mean-matched power-law ``(1+δ)^b`` (smoother)."""
+    if intensity == "transform" and T is not None:
+        return np.clip(T.T(_rank_gaussianize(o, ref)), 0.0, None)
+    if bias is None:
+        target = float(field.overdensity_at(cat.xyz_data[cat.dist_mpc <= dmax]).mean())
+        bias = _calibrate_bias(o, target)
+    return np.clip(o, 0.0, None) ** bias
+
+
 def complete_local_zoa(cat, field, *, zoa_deg=5.0, dmin=5.0, dmax=300.0, n_dbin=40,
-                       bias=None, seed=0, H0=68.1):
+                       bias=None, intensity="transform", seed=0, H0=68.1):
     """Complete the Zone of Avoidance (and any |b|<``zoa_deg`` gap) of ``cat`` in true 3D by
     Poisson-sampling the Manticore field ``field`` (a GriddedFieldContext, equatorial frame).
 
-    The intensity is mass-conserving per distance shell — ``λ ∝ n̄(d) · (1+δ)^b / ⟨(1+δ)^b⟩_shell``
-    — so the fill reaches the all-sky mean density at each distance, modulated by the reconstructed
-    structure. ``bias`` (the galaxy-bias exponent) defaults to an auto-calibration that makes the
-    filled galaxies trace the field with the SAME mean over-density as the observed galaxies (a
-    faithful completion, not the over-concentrated mass field). Returns a dict of the NEW (PROV=5)
-    galaxies: ``ra, dec, dist_mpc, cz, ksmag, prov``."""
+    The intensity is mass-conserving per distance shell — ``λ ∝ n̄(d) · mod / ⟨mod⟩_shell`` — so the
+    fill reaches the all-sky mean density at each distance, modulated by the reconstructed structure.
+    ``intensity='transform'`` (default) uses the contrast-preserving **log-density bias** so the
+    fill reproduces the observed galaxy–field PDF (sharp voids/peaks); ``'bias'`` uses the legacy
+    mean-matched power-law (smoother). Returns a dict of the NEW (PROV=5) galaxies."""
     rng = np.random.default_rng(seed)
     f_sky = float((cat.sel_map > 0).mean())
     edges = np.linspace(dmin, dmax, n_dbin + 1)
@@ -106,11 +160,8 @@ def complete_local_zoa(cat, field, *, zoa_deg=5.0, dmin=5.0, dmax=300.0, n_dbin=
     zoa = np.abs(galactic_b(ra, dec)) < zoa_deg          # the unobserved Galactic-plane voxels
 
     o = opd_raw[zoa]; dz = ds[zoa]
-    if bias is None:                                     # match the observed galaxy–field relation
-        in_range = cat.dist_mpc <= dmax
-        target = float(field.overdensity_at(cat.xyz_data[in_range]).mean())
-        bias = _calibrate_bias(o, target)
-    mod = o ** bias
+    T = observed_cic_transform(cat, field, dmax) if intensity == "transform" else None
+    mod = _modulation(o, opd_raw, intensity, field, cat, dmax, bias, T)
     # normalise the modulation to mean 1 within each distance shell (mass conservation)
     ibin = np.clip(np.searchsorted(edges, dz) - 1, 0, n_dbin - 1)
     bsum = np.bincount(ibin, weights=mod, minlength=n_dbin)
@@ -169,7 +220,7 @@ def estimate_lf(cat, m_faint, k_lim, f_sky, H0=68.1, m_bright=-25.5):
 
 
 def complete_local(cat, field, *, m_faint=-21.0, k_lim=11.5, zoa_deg=5.0, dmin=5.0, dmax=300.0,
-                   n_dbin=40, bias=None, uncert_fields=None, seed=0, H0=68.1):
+                   n_dbin=40, bias=None, intensity="transform", uncert_fields=None, seed=0, H0=68.1):
     """Full true-3D completion: fills the **Zone of Avoidance** AND restores the **faint
     galaxies below the flux limit everywhere**, to a uniform volume-limited density to
     ``m_faint`` modulated by the Manticore field.
@@ -204,11 +255,9 @@ def complete_local(cat, field, *, m_faint=-21.0, k_lim=11.5, zoa_deg=5.0, dmin=5
     f_obs = np.searchsorted(lf_M, m_lim, side="right") / max(len(lf_M), 1)   # frac of LF brighter
     missing = 1.0 - np.clip(f_obs, 0.0, 1.0) * (obs_sky & ~in_zoa)
 
-    # field modulation: bias-calibrated to the observed galaxy-field relation, mean-1 per shell
-    if bias is None:
-        target = float(field.overdensity_at(cat.xyz_data[cat.dist_mpc <= dmax]).mean())
-        bias = _calibrate_bias(o[missing > 0], target)
-    mod = o ** bias
+    # field modulation: contrast-preserving log-Gaussian transform (or legacy power-law), mean-1/shell
+    T = observed_cic_transform(cat, field, dmax) if intensity == "transform" else None
+    mod = _modulation(o, o, intensity, field, cat, dmax, bias, T)
     ibin = np.clip(np.searchsorted(edges, ds) - 1, 0, n_dbin - 1)
     bmean = (np.bincount(ibin, weights=mod, minlength=n_dbin)
              / np.maximum(np.bincount(ibin, minlength=n_dbin), 1))[ibin]
