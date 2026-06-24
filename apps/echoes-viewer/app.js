@@ -396,7 +396,37 @@ function attachCanvasEvents() {
   canvas.addEventListener("pointerup", onPointerUp);
   canvas.addEventListener("pointercancel", onPointerUp);
   canvas.addEventListener("wheel", onWheel, { passive: false });
+  canvas.addEventListener("contextmenu", onContextMenu);
   state.activeCanvas = canvas;
+}
+
+// Right-click a galaxy -> context menu of external astronomy links + local info. Picks the nearest
+// rendered point to the cursor (CPU project-nearest, one-shot), reads its ORIGINAL J2000 coords from
+// state.catalog.raw (preserved regardless of projection/coordinate mode). Needs the AstroLinks +
+// ContextMenu globals (astrolinks.js / contextmenu.js, loaded before this module).
+function onContextMenu(ev) {
+  if (typeof ContextMenu === "undefined") return;            // shared modules not loaded
+  ev.preventDefault();
+  const cat = state.catalog;
+  if (!cat || !cat.count || !state.lastViewProj) return;
+  const rect = els.scene.getBoundingClientRect();
+  const cssX = ev.clientX - rect.left, cssY = ev.clientY - rect.top;
+  const hit = ContextMenu.pickNearest({
+    positions: cat.positions, count: cat.count, cssX, cssY, maxPx: 18,
+    project: (p) => projectToScreen(p, state.lastViewProj),
+  });
+  if (!hit) { ContextMenu.dismissMenu(); return; }
+  const r = cat.raw, i = hit.index;
+  const provCode = r.provenance ? r.provenance[i] : undefined;
+  const provMeta = (provCode != null && state.manifest && state.manifest.provenance_codes)
+    ? state.manifest.provenance_codes[String(provCode)] : null;
+  const model = ContextMenu.menuModel({
+    ra: r.ra[i], dec: r.dec[i], z: r.z ? r.z[i] : undefined,
+    datasetLabel: (state.activePack && state.activePack.title)
+      || (state.manifest && state.manifest.dataset && state.manifest.dataset.id) || null,
+    provenanceLabel: provMeta ? provMeta.label : (r.source && r.source[i] ? "ECHOES completion" : "observed"),
+  });
+  ContextMenu.mountMenu(model, ev.clientX, ev.clientY);
 }
 
 function resetSceneCanvas() {

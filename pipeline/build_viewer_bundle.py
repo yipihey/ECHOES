@@ -48,7 +48,7 @@ from _pack_io import jsonify as _jsonify, sha256 as _sha256, write_array as _wri
 
 def _copy_static(source: Path, out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    for name in ("index.html", "styles.css", "app.js", "README.md"):
+    for name in ("index.html", "styles.css", "app.js", "astrolinks.js", "contextmenu.js", "README.md"):
         src = source / name
         if src.exists():
             shutil.copy2(src, out / name)

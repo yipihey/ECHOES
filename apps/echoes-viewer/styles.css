@@ -384,3 +384,26 @@ details label {
     padding: 7px 10px;
   }
 }
+
+/* right-click galaxy context menu (reuses the .panel look) */
+.context-menu {
+  position: fixed; z-index: 30; min-width: 248px; max-width: 340px;
+  max-height: min(70vh, 560px); overflow: auto; padding: 10px 10px 8px;
+  font-size: 12px; border-radius: 10px;
+}
+.context-menu-header { font-weight: 600; margin-bottom: 4px; color: var(--text); }
+.context-menu-thumb { width: 100%; height: auto; border-radius: 6px; margin: 4px 0 6px;
+  background: #0b0e12; }
+.context-menu-info { color: var(--muted); margin-bottom: 6px; line-height: 1.5; }
+.context-menu-info-row { display: flex; gap: 8px; }
+.context-menu-info-row .k { min-width: 64px; color: var(--muted); }
+.context-menu-info-row .v { color: var(--text); }
+.context-menu-group { color: var(--teal); text-transform: uppercase; font-size: 10px;
+  letter-spacing: 0.04em; margin: 6px 0 2px; }
+.context-menu a { display: block; color: var(--text); text-decoration: none;
+  padding: 4px 6px; border-radius: 6px; }
+.context-menu a:hover { background: var(--control-hover, rgba(255,255,255,0.06)); }
+.context-menu-actions { display: flex; gap: 6px; margin-top: 8px; }
+.context-menu-actions button { flex: 1; background: var(--control, #1b1f24); color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 11px; }
+.context-menu-actions button:hover { background: var(--control-hover, rgba(255,255,255,0.08)); }
