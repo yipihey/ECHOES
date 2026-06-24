@@ -206,6 +206,16 @@ def field_posterior_vecchia(
 
     Returns ``mean`` ``(N_*,)``; if ``n_samples>0`` also ``samples`` ``(n_samples, N_*)`` (Matheron
     draws — correct posterior mean, variance, AND cross-point correlations).
+
+    .. note::
+       **Keep ``device="cpu"`` for the conditional posterior** (the default). The CG is host-bound —
+       its K-apply ``generate(generate_grad_xi(u))`` calls the adjoint ``generate_grad_xi`` every
+       iteration, whose reverse depth-batch sweep is inherently sequential on the host — so GPU gives
+       no speedup. Worse, ``device="gpu"`` + ``build_in_julia=True`` currently NaNs on real catalogues
+       with coincident points (e.g. 2M++ group members): GPU ``generate`` does not yet degrade
+       gracefully on degenerate Vecchia blocks the way the CPU path does (a GraphGP.jl fix is specced).
+       The forward field generation (``graphgp_backend.generate_field``) IS the GPU fast path; the
+       conditional inpaint is the one operation that stays CPU.
     """
     from .graphgp_julia import build_graph_npz, dump_build_npz, JULIA, DRIVER, BENCH_PROJ  # noqa: F401
     import os
