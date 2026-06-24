@@ -21,7 +21,7 @@ import os
 
 import numpy as np
 
-DEFAULT_BACKEND = os.environ.get("ECHOES_GRAPHGP_BACKEND", "jax")
+DEFAULT_BACKEND = os.environ.get("ECHOES_GRAPHGP_BACKEND", "julia")
 
 
 def _as_2d(xi):

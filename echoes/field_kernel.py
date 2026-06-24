@@ -213,7 +213,7 @@ def compute_2pt_weights(
     seed: int = 0,
     n_kernel_bins: int = 200,
     return_diagnostics: bool = False,
-    backend: str = "jax",
+    backend: str = "julia",
     device: str = "cpu",
 ):
     """Layer III per-point density weights via a Vecchia GP sample.

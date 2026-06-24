@@ -795,7 +795,7 @@ def generate_catalogs_from_kernel(
     k: int = 30,
     sampling: str = "poisson",
     chunk_size: Optional[int] = 50_000,
-    backend: str = "jax",
+    backend: str = "julia",
     device: str = "cpu",
     verbose: bool = False,
 ):
