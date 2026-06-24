@@ -174,6 +174,76 @@ def gp_sample_dense(
     return out
 
 
+def field_posterior_vecchia(
+    x_data: np.ndarray,
+    y_data: np.ndarray,
+    noise_var,
+    x_pred: np.ndarray,
+    cov,
+    *,
+    n_samples: int = 0,
+    seed: int = 0,
+    jitter: float = 1e-6,
+    n0: int = 64,
+    k: int = 30,
+    cg_tol: float = 1e-8,
+    cg_maxiter: int = 500,
+    work_dir: Optional[str] = None,
+):
+    """Scalable GraphGP version of :func:`gp_posterior_dense` / :func:`gp_sample_dense`.
+
+    The exact Matheron posterior of the latent field at ``x_pred`` given noisy observations ``y_data``
+    at ``x_data``, computed **matrix-free** over a single joint Vecchia graph on
+    ``Xall = [x_pred; x_data]`` — no dense ``(N_D, N_D)`` covariance is ever formed, so this scales to
+    the full BOSS catalog where ``gp_sample_dense`` cannot. The full-space covariance apply is
+    ``K·u = generate(generate_grad_xi(u))`` (``L·Lᵀ``); ``(K_DD + N)⁻¹`` is a conjugate-gradient
+    solve. Reaches the GraphGP.jl backend over the NPZ subprocess bridge (the whole CG runs in one
+    Julia process). With a large ``k`` the Vecchia factor is the exact Cholesky, so this reproduces
+    the dense routines (validated in ``tests/test_field_posterior.py``); at production ``k`` it is the
+    standard Vecchia approximation.
+
+    Returns ``mean`` ``(N_*,)``; if ``n_samples>0`` also ``samples`` ``(n_samples, N_*)`` (Matheron
+    draws — correct posterior mean, variance, AND cross-point correlations).
+    """
+    from .graphgp_julia import build_graph_npz, JULIA, DRIVER, BENCH_PROJ  # noqa: F401
+    import os
+    import subprocess
+    import tempfile
+
+    x_data = np.ascontiguousarray(x_data, np.float64)
+    x_pred = np.ascontiguousarray(x_pred, np.float64)
+    y_data = np.ascontiguousarray(y_data, np.float64).ravel()
+    nd, ns = len(x_data), len(x_pred)
+    nv = np.broadcast_to(np.asarray(noise_var, np.float64), (nd,)).copy()
+    cov_bins = np.asarray(cov[0], np.float64)
+    cov_vals = np.asarray(cov[1], np.float64)
+
+    Xall = np.concatenate([x_pred, x_data], axis=0)          # prediction points FIRST (input order)
+    data_mask = np.concatenate([np.zeros(ns, np.int64), np.ones(nd, np.int64)])
+
+    work = work_dir or tempfile.mkdtemp(prefix="echoes_post_")
+    in_npz = os.path.join(work, "post.npz")
+    out_npz = os.path.join(work, "post_out.npz")
+    build_graph_npz(Xall, n0, min(k, len(Xall) - 1), cov_bins, cov_vals, in_npz)
+    base = dict(np.load(in_npz))
+    base.update(data_mask=data_mask, y_data=y_data, noise_var=nv,
+                n_samples=np.int64(max(n_samples, 0)), seed=np.int64(seed),
+                jitter=np.float64(jitter), cg_tol=np.float64(cg_tol),
+                cg_maxiter=np.int64(cg_maxiter))
+    np.savez(in_npz, **base)
+
+    driver = os.path.join(os.path.dirname(DRIVER), "run_posterior.jl")
+    cmd = [JULIA, "-t", "8", "--project=" + BENCH_PROJ, driver, in_npz, out_npz]
+    res = subprocess.run(cmd, env=dict(os.environ), capture_output=True, text=True)
+    if res.returncode != 0 or not os.path.exists(out_npz):
+        raise RuntimeError(f"run_posterior.jl failed (rc={res.returncode}):\n{res.stderr[-2000:]}")
+    out = dict(np.load(out_npz))
+    mean = np.asarray(out["post_mean"], np.float64).ravel()
+    if n_samples <= 0:
+        return mean
+    return mean, np.asarray(out["post_samples"], np.float64)
+
+
 def conditional_overdensity_los(
     x_obs: np.ndarray,
     nbar_obs,
