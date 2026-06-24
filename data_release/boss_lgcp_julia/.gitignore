@@ -1,1 +1,5 @@
 *.npz
+*.fits
+covariance/
+fits/
+*.log
