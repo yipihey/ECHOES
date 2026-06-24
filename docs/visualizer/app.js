@@ -82,7 +82,8 @@ function setupElements() {
 async function main() {
   setupElements();
   try {
-    state.manifestUrl = new URL(MANIFEST_URL, window.location.href);
+    setLoading("Fetching pack registry...");
+    state.manifestUrl = await resolveManifestUrl();
     setLoading("Fetching manifest...");
     state.manifest = await fetchJson(state.manifestUrl);
     state.method = state.manifest.methods[0];
@@ -119,6 +120,45 @@ async function fetchJson(url) {
   return res.json();
 }
 
+const PACKS_URL = "../packs/packs.json";
+const PACKS_ENABLED_KEY = "echoes.packs.enabled";
+
+// Resolve which dataset to load from the pack registry (docs/packs/packs.json). Selection
+// precedence: ?packs=<id,...> URL param > localStorage > registry default. Falls back to the
+// legacy single-manifest path (data/viewer_manifest.json) when no registry is present, so an old
+// deploy — or the dev app/ copy without a packs/ sibling — behaves exactly as before.
+async function resolveManifestUrl() {
+  try {
+    const packsUrl = new URL(PACKS_URL, window.location.href);
+    const registry = await fetchJson(packsUrl);
+    const packs = (registry && Array.isArray(registry.packs)) ? registry.packs : [];
+    if (packs.length) {
+      const chosen = choosePack(packs);
+      state.registry = registry;
+      state.activePack = chosen;
+      return new URL(chosen.manifest_url, packsUrl);     // manifest_url is relative to packs.json
+    }
+  } catch (err) {
+    // no registry (404 / parse error) -> legacy single-manifest behaviour
+  }
+  return new URL(MANIFEST_URL, window.location.href);
+}
+
+function choosePack(packs) {
+  let want = [];
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = params.get("packs");
+    const fromStore = window.localStorage ? window.localStorage.getItem(PACKS_ENABLED_KEY) : null;
+    want = String(fromUrl || fromStore || "").split(",").map((s) => s.trim()).filter(Boolean);
+  } catch (err) { /* URL/localStorage unavailable */ }
+  if (want.length) {
+    const match = packs.find((p) => want.includes(p.id));
+    if (match) return match;
+  }
+  return packs.find((p) => p.default) || packs[0];
+}
+
 async function fetchArray(desc) {
   const url = new URL(desc.file, state.manifestUrl);
   const label = desc.file || url.toString();
@@ -128,15 +168,30 @@ async function fetchArray(desc) {
   if (typeof desc.bytes === "number" && buf.byteLength !== desc.bytes) {
     throw new Error(`wrong byte count for ${label}: expected ${desc.bytes}, got ${buf.byteLength}`);
   }
+  await verifySha256(buf, desc.sha256, label);
   const dtype = desc.dtype;
   let arr;
   if (dtype === "<f4" || dtype === "|f4") arr = new Float32Array(buf);
   else if (dtype === "|u1" || dtype === "u1") arr = new Uint8Array(buf);
+  else if (dtype === "<u2" || dtype === "|u2") arr = new Uint16Array(buf);
+  else if (dtype === "<i4" || dtype === "|i4") arr = new Int32Array(buf);
   else throw new Error(`unsupported viewer dtype ${dtype} for ${label}`);
   if (typeof desc.count === "number" && arr.length !== desc.count) {
     throw new Error(`wrong element count for ${label}: expected ${desc.count}, got ${arr.length}`);
   }
   return arr;
+}
+
+// Verify a fetched chunk against the manifest sha256 (tamper/corruption-evident, and lets
+// content-addressed chunks be cached forever). Requires crypto.subtle (HTTPS / localhost); on
+// http:// dev where it is unavailable the check is skipped (bytes+count still validate).
+async function verifySha256(buf, expected, label) {
+  if (!expected || !(window.crypto && window.crypto.subtle && window.crypto.subtle.digest)) return;
+  const digest = await window.crypto.subtle.digest("SHA-256", buf);
+  const hex = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  if (hex !== expected) {
+    throw new Error(`sha256 mismatch for ${label}: expected ${expected.slice(0, 12)}…, got ${hex.slice(0, 12)}…`);
+  }
 }
 
 async function fetchWithTimeout(url, label, timeoutMs = FETCH_TIMEOUT_MS) {

@@ -1,0 +1,18 @@
+{
+  "schema_version": "echoes.packs.v1",
+  "generator": "pipeline/build_pack.py registry",
+  "packs": [
+    {
+      "id": "boss-cmass",
+      "title": "BOSS DR12 CMASS-South",
+      "description": "ECHOES completed posterior of BOSS DR12 CMASS-South (~120k galaxies, multiple seeds).",
+      "version": "1.0.0",
+      "kind": "points",
+      "total_bytes": 3850000,
+      "manifest_url": "../visualizer/data/viewer_manifest.json",
+      "thumbnail": null,
+      "requires": [],
+      "default": true
+    }
+  ]
+}
