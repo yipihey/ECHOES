@@ -1,0 +1,30 @@
+{
+  "schema_version": "echoes.packs.v1",
+  "generator": "pipeline/build_pack.py registry",
+  "packs": [
+    {
+      "id": "boss-cmass",
+      "title": "BOSS DR12 CMASS-South",
+      "description": "ECHOES completed posterior of BOSS DR12 CMASS-South (~120k galaxies, multiple seeds).",
+      "version": "1.0.0",
+      "kind": "points",
+      "total_bytes": 3850000,
+      "manifest_url": "../visualizer/data/viewer_manifest.json",
+      "thumbnail": null,
+      "requires": [],
+      "default": true
+    },
+    {
+      "id": "local-2mpp",
+      "title": "Local 2M++ neighbourhood (true 3D)",
+      "description": "",
+      "version": "1.0.0",
+      "kind": "points",
+      "total_bytes": 16460080,
+      "manifest_url": "local-2mpp/pack_manifest.json",
+      "thumbnail": null,
+      "requires": [],
+      "default": false
+    }
+  ]
+}

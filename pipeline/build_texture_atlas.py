@@ -277,6 +277,7 @@ def build(args):
              ksmag=ksmag.astype(np.float32), xyz=_xyz(ra, dec, dist),
              ang_size_arcmin=ang.astype(np.float32), b_a=geom.b_a.astype(np.float32),
              pa_deg=geom.pa_deg.astype(np.float32),
+             pgc=(geom.pgc if geom.pgc is not None else np.full(n, -1, np.int64)).astype(np.int64),
              survey_code=survey_used.astype(np.int16), atlas_tile_index=atlas_index)
 
     by = {SURVEY_NAME[c]: int((survey_used == c).sum()) for c in SURVEY_HIPS}

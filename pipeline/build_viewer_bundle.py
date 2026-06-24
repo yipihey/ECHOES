@@ -42,42 +42,13 @@ PROVENANCE_CODES = {str(code): meta for code, meta in prov_registry().items()}
 PROVENANCE_GROUPS = group_registry()           # coarse origin groups (colour-by-origin)
 
 
-def _jsonify(x: Any) -> Any:
-    if isinstance(x, dict):
-        return {str(k): _jsonify(v) for k, v in x.items()}
-    if isinstance(x, (list, tuple)):
-        return [_jsonify(v) for v in x]
-    if isinstance(x, np.generic):
-        return x.item()
-    return x
-
-
-def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def _write_array(data_dir: Path, rel: str, arr: np.ndarray, dtype: str) -> dict[str, Any]:
-    path = data_dir / rel
-    path.parent.mkdir(parents=True, exist_ok=True)
-    out = np.ascontiguousarray(np.asarray(arr).astype(np.dtype(dtype), copy=False))
-    path.write_bytes(out.tobytes(order="C"))
-    return {
-        "file": rel,
-        "dtype": np.dtype(dtype).str,
-        "shape": list(out.shape),
-        "count": int(out.size),
-        "bytes": int(path.stat().st_size),
-        "sha256": _sha256(path),
-    }
+# chunk + integrity primitives now live in pipeline/_pack_io.py (shared with build_pack.py).
+from _pack_io import jsonify as _jsonify, sha256 as _sha256, write_array as _write_array  # noqa: E402
 
 
 def _copy_static(source: Path, out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    for name in ("index.html", "styles.css", "app.js", "README.md"):
+    for name in ("index.html", "styles.css", "app.js", "astrolinks.js", "contextmenu.js", "README.md"):
         src = source / name
         if src.exists():
             shutil.copy2(src, out / name)

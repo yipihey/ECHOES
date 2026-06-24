@@ -1,0 +1,157 @@
+{
+  "schema_version": "echoes.pack.v1",
+  "pack": {
+    "id": "local-2mpp",
+    "kind": "points",
+    "version": "1.0.0",
+    "coordinate": "cartesian_mpc",
+    "frame": "equatorial comoving"
+  },
+  "dataset": {
+    "title": "Local 2M++ neighbourhood (true 3D)",
+    "mcmc": 0,
+    "n_observed": 67966,
+    "n_completed": 960789
+  },
+  "tiers": {
+    "core": {
+      "label": "Core (fast start)",
+      "priority": 0,
+      "autoload": true
+    },
+    "refinement": {
+      "label": "Full completion",
+      "priority": 10,
+      "autoload": true
+    }
+  },
+  "value_label": "K_s magnitude",
+  "layers": [
+    {
+      "id": "observed",
+      "tier": "core",
+      "lod": 0,
+      "count": 67966,
+      "color": "#9aa0a6",
+      "value_range": {
+        "min": 4.090000152587891,
+        "max": 12.5
+      },
+      "bbox": [
+        -290.6373596191406,
+        -291.89776611328125,
+        -298.9449157714844,
+        290.18853759765625,
+        284.06231689453125,
+        275.6644287109375
+      ],
+      "columns": {
+        "xyz": {
+          "file": "core/observed_xyz.f32.bin",
+          "dtype": "<f4",
+          "shape": [
+            67966,
+            3
+          ],
+          "count": 203898,
+          "bytes": 815592,
+          "sha256": "076e7b2d8e1099879d3c6739d36d2a41a5e65fd735587bcf47d70fa11026b441"
+        },
+        "value": {
+          "file": "core/observed_value.f32.bin",
+          "dtype": "<f4",
+          "shape": [
+            67966
+          ],
+          "count": 67966,
+          "bytes": 271864,
+          "sha256": "a518e651979445ed07dbbcd513ffcd34a511f3f66b3832bafeb605adbbe7e79a"
+        }
+      }
+    },
+    {
+      "id": "completed-zoa",
+      "tier": "refinement",
+      "lod": 1,
+      "count": 448405,
+      "color": "#ff3b30",
+      "value_range": {
+        "min": 4.582660675048828,
+        "max": 15.391223907470703
+      },
+      "bbox": [
+        -300.5509948730469,
+        -300.7222595214844,
+        -300.7332763671875,
+        300.7254638671875,
+        300.7041015625,
+        300.7337341308594
+      ],
+      "columns": {
+        "xyz": {
+          "file": "refinement/completed-zoa_xyz.f32.bin",
+          "dtype": "<f4",
+          "shape": [
+            448405,
+            3
+          ],
+          "count": 1345215,
+          "bytes": 5380860,
+          "sha256": "41d1c1571fe9390e6b88157198374409f81f417e9c8577a0ba57e5e7c3d997df"
+        },
+        "value": {
+          "file": "refinement/completed-zoa_value.f32.bin",
+          "dtype": "<f4",
+          "shape": [
+            448405
+          ],
+          "count": 448405,
+          "bytes": 1793620,
+          "sha256": "6167fe7c243df25acfa4851708b9d9cc4ced266499e4618930d1bd45fc754fa6"
+        }
+      }
+    },
+    {
+      "id": "completed-faint",
+      "tier": "refinement",
+      "lod": 1,
+      "count": 512384,
+      "color": "#3a78ff",
+      "value_range": {
+        "min": 11.437891006469727,
+        "max": 15.401371002197266
+      },
+      "bbox": [
+        -300.6394958496094,
+        -300.73968505859375,
+        -300.560791015625,
+        300.51165771484375,
+        300.31719970703125,
+        300.6046142578125
+      ],
+      "columns": {
+        "xyz": {
+          "file": "refinement/completed-faint_xyz.f32.bin",
+          "dtype": "<f4",
+          "shape": [
+            512384,
+            3
+          ],
+          "count": 1537152,
+          "bytes": 6148608,
+          "sha256": "17956fcb6fce075f9433eeb42b1b30bfac51cae088d56557f546c536a4cc0b06"
+        },
+        "value": {
+          "file": "refinement/completed-faint_value.f32.bin",
+          "dtype": "<f4",
+          "shape": [
+            512384
+          ],
+          "count": 512384,
+          "bytes": 2049536,
+          "sha256": "bb8da1a4a074e4753f0b647b86e422633ee1065f592490eae3a366e1e3f9b2cf"
+        }
+      }
+    }
+  ]
+}

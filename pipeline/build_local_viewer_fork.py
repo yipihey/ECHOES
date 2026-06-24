@@ -42,6 +42,71 @@ def _tile_rects(tile_idx, m):
     return np.column_stack([u0, v0, u1, v1]).astype(np.float32)
 
 
+def _context_menu_js(gz, have):
+    """Injected JS for right-click → external-astronomy-links context menu on the textured galaxies.
+
+    Embeds a compact per-galaxy table + the shared ``apps/echoes-viewer/astrolinks.js`` (single source
+    of truth for the URL templates), projects each galaxy through the live k3d camera on
+    ``contextmenu``, picks the nearest billboard within 18 px, and builds a dark menu of
+    NED/SIMBAD/Aladin/Legacy links + local info + copy-coordinates. Runs inside the standalone
+    snapshot's ``.then(function(K3DInstance){…})`` so ``K3DInstance`` is in scope."""
+    al_path = os.path.join(os.path.dirname(__file__), "..", "apps", "echoes-viewer", "astrolinks.js")
+    astrolinks_src = open(al_path).read()
+    pgc = gz["pgc"][have] if "pgc" in gz.files else np.full(len(have), -1)
+    gal = {
+        "n": int(len(have)),
+        "ra": [round(float(v), 5) for v in gz["ra"][have]],
+        "dec": [round(float(v), 5) for v in gz["dec"][have]],
+        "dist": [round(float(v), 1) for v in gz["dist_mpc"][have]],
+        "ksmag": [round(float(v), 2) for v in gz["ksmag"][have]],
+        "pgc": [int(v) for v in pgc],
+        "xyz": [round(float(v), 3) for v in gz["xyz"][have].astype(float).ravel()],
+    }
+    gal_json = json.dumps(gal, separators=(",", ":"))
+    return (
+        "(function(){\n" + astrolinks_src + "\n"
+        "var GAL=" + gal_json + ";var AL=self.AstroLinks;\n"
+        "function m4(a,b){var o=new Array(16);for(var c=0;c<4;c++)for(var r=0;r<4;r++){var s=0;"
+        "for(var k=0;k<4;k++)s+=a[k*4+r]*b[c*4+k];o[c*4+r]=s;}return o;}\n"
+        "function menu(o,x,y){if(window.__emenu)window.__emenu.remove();"
+        "var c=AL.formatCoord(o.ra,o.dec),nm=o.pgc>0?('PGC '+o.pgc):null,"
+        "ls=AL.astroLinks({ra:o.ra,dec:o.dec,distMpc:o.dist,name:nm,pgc:o.pgc});"
+        "var d=document.createElement('div');d.style.cssText='position:fixed;z-index:10000;"
+        "min-width:240px;max-width:330px;background:rgba(11,11,15,0.97);border:1px solid #333;"
+        "border-radius:8px;padding:9px;color:#ddd;font:12px -apple-system,sans-serif;"
+        "box-shadow:0 6px 22px rgba(0,0,0,0.7)';"
+        "var h='<div style=\"font-weight:600;margin-bottom:3px\">Galaxy'+(nm?(' \\u00b7 '+nm):'')+'</div>';"
+        "h+='<div style=\"color:#9aa\">'+c.sexagesimalStr+'</div>';"
+        "h+='<div style=\"color:#9aa;margin-bottom:6px\">'+o.dist.toFixed(1)+' Mpc \\u00b7 Ks '+o.ksmag.toFixed(2)+'</div>';"
+        "var lg=null;ls.forEach(function(l){if(l.group!==lg){h+='<div style=\"color:#6cc;"
+        "text-transform:uppercase;font-size:10px;letter-spacing:.04em;margin:5px 0 1px\">'+l.group+'</div>';lg=l.group;}"
+        "h+='<a href=\"'+l.href+'\" target=\"_blank\" rel=\"noopener noreferrer\" style=\"display:block;"
+        "color:#bdf;text-decoration:none;padding:3px 5px;border-radius:4px\">'+l.label+' \\u2197</a>';});"
+        "h+='<button id=\"ecpy\" style=\"margin-top:7px;background:#222;color:#ccc;border:1px solid #444;"
+        "border-radius:4px;cursor:pointer;padding:3px 9px\">Copy coordinates</button>';"
+        "d.innerHTML=h;document.body.appendChild(d);var w=d.offsetWidth,hh=d.offsetHeight;"
+        "d.style.left=Math.max(4,Math.min(x,innerWidth-w-8))+'px';"
+        "d.style.top=Math.max(4,Math.min(y,innerHeight-hh-8))+'px';"
+        "d.querySelector('#ecpy').onclick=function(){try{navigator.clipboard.writeText(c.sexagesimalStr);"
+        "this.textContent='Copied';}catch(e){}};window.__emenu=d;}\n"
+        "var world=K3DInstance.getWorld(),dom=world.targetDOMNode;\n"
+        "dom.addEventListener('contextmenu',function(ev){ev.preventDefault();var cam=world.camera;"
+        "if(!cam)return;cam.updateMatrixWorld();"
+        "var vp=m4(cam.projectionMatrix.elements,cam.matrixWorldInverse.elements);"
+        "var rect=dom.getBoundingClientRect(),W=rect.width,H=rect.height,"
+        "cx=ev.clientX-rect.left,cy=ev.clientY-rect.top,best=-1,bd=324;"
+        "for(var i=0;i<GAL.n;i++){var X=GAL.xyz[i*3],Y=GAL.xyz[i*3+1],Z=GAL.xyz[i*3+2];"
+        "var ww=vp[3]*X+vp[7]*Y+vp[11]*Z+vp[15];if(ww<=0)continue;"
+        "var xc=(vp[0]*X+vp[4]*Y+vp[8]*Z+vp[12])/ww,yc=(vp[1]*X+vp[5]*Y+vp[9]*Z+vp[13])/ww;"
+        "var px=(xc*0.5+0.5)*W,py=(-yc*0.5+0.5)*H,dx=px-cx,dy=py-cy,d2=dx*dx+dy*dy;if(d2<bd){bd=d2;best=i;}}"
+        "if(best<0)return;menu({ra:GAL.ra[best],dec:GAL.dec[best],dist:GAL.dist[best],"
+        "ksmag:GAL.ksmag[best],pgc:GAL.pgc[best]},ev.clientX,ev.clientY);});\n"
+        "document.addEventListener('pointerdown',function(ev){if(window.__emenu&&"
+        "!window.__emenu.contains(ev.target))window.__emenu.remove();},true);\n"
+        "document.addEventListener('keydown',function(ev){if(ev.key==='Escape'&&window.__emenu)"
+        "window.__emenu.remove();});\n})();\n")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--atlas-dir", default=os.path.join("docs", "visualizer-local", "data"))
@@ -115,15 +180,18 @@ def main():
             name=f"galaxy images (sheet {s}, {len(sel)})")
         n_tex += len(sel)
 
+    # right-click a galaxy -> context menu of external astronomy links (NED/SIMBAD/Aladin/Legacy)
+    # + local info. Injected JS projects the embedded galaxy table through the live k3d camera and
+    # picks the nearest billboard; reuses the shared apps/echoes-viewer/astrolinks.js (single source).
+    add_js = _context_menu_js(gz, have)
     # optional: inject a collapsible, browser-editable Veusz figure overlay (merge the Veusz work
     # into the viewer). The figure shows a static poster instantly and boots the WASM editor on click.
-    add_js = ""
     if args.veusz:
         import json as _json
         from tools.veusz_vsz import embed_tag, EMBED_SCRIPT_VERSION
         fig_html = embed_tag(args.veusz, width=720, height=360)
         embed_src = f"https://yipihey.github.io/veusz/embed/{EMBED_SCRIPT_VERSION}/veusz-embed.js"
-        add_js = (
+        add_js += (
             "(function(){"
             "var s=document.createElement('script');s.type='module';"
             f"s.src={_json.dumps(embed_src)};document.head.appendChild(s);"
