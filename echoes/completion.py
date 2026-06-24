@@ -794,6 +794,7 @@ def generate_catalogs_from_kernel(
     n0: int = 256,
     k: int = 30,
     sampling: str = "poisson",
+    transform=None,
     chunk_size: Optional[int] = 50_000,
     backend: str = "julia",
     device: str = "cpu",
@@ -859,7 +860,13 @@ def generate_catalogs_from_kernel(
                 f = np.asarray(gp.generate(graph, cov, jnp.asarray(eps, dtype=jnp.float64)))
         f = np.where(np.isfinite(f), f, 0.0)
         f = np.clip(f, -8.0 * sig, 8.0 * sig)
-        opd = np.exp(f - 0.5 * sigma2)
+        if transform is not None:
+            # TIER-A (#4): intensity = measured transform of the standardised field, g=f/σ. The
+            # kernel was built by kernel_from_K2d_tierA so ⟨T(g_i)T(g_j)⟩ reproduces ξ_true (2-pt
+            # preserved); only the 1-point PDF / multi-occupancy tail changes vs the lognormal.
+            opd = np.clip(np.asarray(transform.T(f / sig), np.float64), 0.0, None)
+        else:
+            opd = np.exp(f - 0.5 * sigma2)
         opd_sum = float(opd.sum())
         a_thin = w_sum / opd_sum if opd_sum > 0 else 0.0
         rng = np.random.default_rng(1000 + seed + s)
@@ -970,6 +977,19 @@ def kernel_from_K2d(
     ``alpha`` is only the graph embedding scale (it cancels from the kernel
     value). Returns ``(AnisotropicCovariance, sigma2)``.
     """
+    KG = np.log1p(np.clip(np.asarray(xi_true, np.float64), 0.0, None))
+    return _anisocov_from_kernel_grid(theta_edges, z_edges, KG, alpha=alpha, jitter=jitter,
+                                      theta_cap_deg=theta_cap_deg, n_ltheta=n_ltheta, n_lz=n_lz,
+                                      n_s=n_s, n_zg=n_zg)
+
+
+def _anisocov_from_kernel_grid(theta_edges, z_edges, KG, *, alpha=2.0, jitter=0.02,
+                               theta_cap_deg=0.0, n_ltheta=12, n_lz=8, n_s=512, n_zg=256):
+    """NNLS non-negative Matérn-bank fit of a target Gaussian-field kernel grid ``KG`` (on the
+    measured (Δθ,Δz) bins) → PSD ``AnisotropicCovariance``. ``KG`` is the Gaussian field's kernel:
+    ``log(1+ξ)`` for the lognormal LGCP (``kernel_from_K2d``), or the Gaussian CORRELATION
+    ``ρ=ξ_T⁻¹(ξ)`` for a measured transform (``kernel_from_K2d_tierA``). Returns ``(cov, diag0)``
+    with ``diag0 = grid[0,0]·(1+jitter)`` (=σ² for lognormal; ≈1 for a correlation/Tier-A)."""
     from scipy.optimize import nnls
     import graphgp as gp
 
@@ -978,7 +998,7 @@ def kernel_from_K2d(
     theta_c[1:] = np.sqrt(theta_edges[1:-1] * theta_edges[2:])
     z_c = 0.5 * (z_edges[1:] + z_edges[:-1])
     chord_c = 2.0 * np.sin(np.radians(theta_c) / 2.0)
-    KG = np.log1p(np.clip(np.asarray(xi_true, np.float64), 0.0, None))
+    KG = np.asarray(KG, np.float64)
 
     lt_min = 0.5 * chord_c[0]
     if theta_cap_deg:
@@ -1001,6 +1021,45 @@ def kernel_from_K2d(
             grid += a * np.outer(_matern1(sb, lt), _matern1(zb, lz))
     cov = gp.build_anisotropic_covariance(sb, zb, grid, float(alpha), jitter=jitter)
     return cov, float(grid[0, 0] * (1.0 + jitter))
+
+
+def lgcp_density_transform(sigma2_log, *, skew, kind="lognormal", n_grid=512):
+    """Build the Tier-A LGCP intensity transform ``T`` (a :class:`density_transform.DensityTransform`)
+    consistent with the field's measured zero-lag variance.
+
+    The lognormal LGCP intensity ``exp(f−σ²/2)`` at ``σ²=sigma2_log`` has zero-lag variance
+    ``var = e^{σ²}−1`` and a FIXED skew ``(ω+2)√(ω−1)``, ω=e^{σ²} — which is ≈500 at σ²=4.14 and is
+    exactly the runaway tail that drives multi-occupancy (DIAGNOSTICS.md, #1). This refits the SAME
+    variance with a chosen lower ``skew`` (the regularisation knob; the data's CiC skew is ≈3.1),
+    giving a shifted-lognormal ``(1+δ₀)e^{σ_g g−σ_g²/2}−δ₀`` with a far lighter tail. The 2-pt is then
+    restored by ``kernel_from_K2d_tierA`` (which inverts ξ_T for this T), so only the 1-point PDF /
+    multi-occupancy changes. ``kind='lognormal'`` is the shifted-lognormal; the empirical/quantile
+    transform is fit from a measured CiC sample via ``density_transform.fit_density_transform``."""
+    from .density_transform import DensityTransform, _fit_shifted_lognormal
+    var = float(np.expm1(sigma2_log))
+    if kind == "lognormal":
+        d0, sg = _fit_shifted_lognormal(var, skew)
+        return DensityTransform(kind="lognormal", var_opd=var, skew_opd=float(skew),
+                                sigma_g=sg, delta0=d0)
+    raise ValueError(f"lgcp_density_transform kind={kind!r}; use 'lognormal' or fit_density_transform")
+
+
+def kernel_from_K2d_tierA(theta_edges, z_edges, xi_true, dt, *, alpha=2.0, jitter=0.02,
+                          theta_cap_deg=0.0, n_ltheta=12, n_lz=8, n_s=512, n_zg=256):
+    """Tier-A kernel: the Gaussian field whose intensity ``1+δ = dt.T(f)`` reproduces the measured
+    ``xi_true`` (covariance next-step #4, replaces the dead #1).
+
+    Unlike ``kernel_from_K2d`` (which hard-codes the lognormal ``KG=log(1+ξ)``), this inverts ξ_T for
+    the supplied transform ``dt``: the Gaussian CORRELATION ``ρ(Δθ,Δz)=ξ_T⁻¹(ξ_true)`` (echoes.
+    nongauss_lgcp.rho_of_xi) reproduces ``xi_true`` under ``dt.T``. The field is unit-variance
+    (diag≈1); ``generate_catalogs_from_kernel(..., transform=dt)`` then forms ``opd=dt.T(f)`` instead
+    of the lognormal. Returns ``(cov, sigma2≈1)``."""
+    from .nongauss_lgcp import rho_of_xi
+    xi = np.clip(np.asarray(xi_true, np.float64), 0.0, None)
+    rho = rho_of_xi(dt, xi)                                   # Gaussian correlation, in [-1,1]
+    return _anisocov_from_kernel_grid(theta_edges, z_edges, rho, alpha=alpha, jitter=jitter,
+                                      theta_cap_deg=theta_cap_deg, n_ltheta=n_ltheta, n_lz=n_lz,
+                                      n_s=n_s, n_zg=n_zg)
 
 
 def _matern1(d, ell):

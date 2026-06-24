@@ -47,6 +47,7 @@ os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
 from echoes.surveys.boss import load_boss
 from echoes.completion import (measure_K2d_data, deconvolve_window, kernel_from_K2d,
+                               kernel_from_K2d_tierA, lgcp_density_transform,
                                generate_catalogs_from_kernel, fkp_weight_of_z)
 from echoes.randoms import make_random_from_selection_function
 from echoes.distance import comoving_distance
@@ -196,6 +197,12 @@ def main():
     ap.add_argument("--alpha", type=float, default=2.0)
     ap.add_argument("--device", choices=["cpu", "gpu"], default="gpu")
     ap.add_argument("--sampling", choices=["poisson", "bernoulli"], default="poisson")
+    ap.add_argument("--transform", choices=["none", "lognormal"], default="none",
+                    help="'lognormal' = Tier-A non-Gaussian intensity (#4): regularise the lognormal "
+                         "skew via --skew and re-derive the kernel (kernel_from_K2d_tierA) so the 2-pt "
+                         "is preserved while the multi-occupancy tail is cut. 'none' = bare lognormal.")
+    ap.add_argument("--skew", type=float, default=10.0,
+                    help="Tier-A intensity-PDF skew target (lognormal native ≈500-720; data CiC ≈3.1)")
     ap.add_argument("--batch", type=int, default=0,
                     help="if >0, stream the ensemble in batches of this many (each batch "
                          "REBUILDS the graph; only for memory relief at very large N)")
@@ -253,7 +260,16 @@ def main():
                                        n_data=args.n_data_meas, n_rand_factor=args.n_rand_meas,
                                        seed=0, return_counts=True)
     xi_in, ic = deconvolve_window(xi_w, cnt["rr"])
-    cov_k, sigma2 = kernel_from_K2d(te, ze, xi_in, alpha=args.alpha)
+    cov_ln, sigma2_ln = kernel_from_K2d(te, ze, xi_in, alpha=args.alpha)
+    dt = None
+    if args.transform == "lognormal":                 # Tier-A (#4): regularised non-Gaussian intensity
+        dt = lgcp_density_transform(sigma2_ln, skew=args.skew, kind="lognormal")
+        cov_k, sigma2 = kernel_from_K2d_tierA(te, ze, xi_in, dt, alpha=args.alpha)
+        print(f"[cov] Tier-A transform: skew={args.skew} σ_g={dt.sigma_g:.3f} δ0={dt.delta0:.2f} "
+              f"var(T)={dt.var_opd:.1f}; lognormal σ²={sigma2_ln:.3f} → Tier-A kernel diag={sigma2:.3f}",
+              flush=True)
+    else:
+        cov_k, sigma2 = cov_ln, sigma2_ln
     t["kernel"] = time.perf_counter() - _t
     print(f"[cov] K_in IC={ic:.4f}  sigma2={sigma2:.3f}  [kernel {t['kernel']:.1f}s]", flush=True)
 
@@ -297,7 +313,7 @@ def main():
         return generate_catalogs_from_kernel(
             cat, cov_k, sigma2, alpha=args.alpha, n_samples=n, seed=seed,
             w_completeness=w_comp, n_cand_factor=args.n_cand_factor, sampling=args.sampling,
-            backend="julia", device=args.device, verbose=False)
+            transform=dt, backend="julia", device=args.device, verbose=False)
 
     cats = []
     if args.batch and args.batch < args.n_realizations:
@@ -394,7 +410,10 @@ def main():
             print(f"        ratio      ={ratio}")
 
     # ---- save --------------------------------------------------------------------------
-    tag = f"{args.sampling}_N{args.n_realizations}_cf{args.n_cand_factor}"
+    # tag carries the candidate-set count (= graph builds): batch200/N1000 has 5 sets, the
+    # candidate-independence rerun (#2) has many — distinct files so the comparison is preserved.
+    xfm = "lognorm" if args.transform == "none" else f"tierA-sk{args.skew:g}"
+    tag = f"{args.sampling}_{xfm}_N{args.n_realizations}_cf{args.n_cand_factor}_sets{n_builds}"
     meas_path = os.path.join(OUT, f"measurements_{tag}.npz")
     np.savez_compressed(
         meas_path,

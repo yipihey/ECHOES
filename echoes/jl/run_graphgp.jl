@@ -67,11 +67,16 @@ if "generate" in ops
     xi = T.(d["xi"])                                  # (N,) or (N, n_samples), ORIGINAL order
     xi = ndims(xi) == 1 ? reshape(xi, :, 1) : xi
     N, S = size(xi)
-    outv = Array{Float64}(undef, S, N)                # (n_samples, N) ORIGINAL order
+    # Output in the RUN dtype T (f32 in production) — NOT always-f64. The GPU compute is already T,
+    # so this is a pure serialization change that HALVES the (S,N) on-disk array under f32. That
+    # directly relaxes the ZIP32 4GB-per-entry ceiling (the batch cap for big ensembles), letting a
+    # density-matched high-n_cand covariance run with larger/​fewer-constrained batches. f64 callers
+    # (the parity gate) get T=Float64 → bit-identical to before.
+    outv = Array{T}(undef, S, N)                      # (n_samples, N) ORIGINAL order
     for s in 1:S
         xis = xi[:, s]                                # original order; generate gathers internally
         usegpu && (xis = CuArray(xis))
-        outv[s, :] = Float64.(Array(generate(prob, xis)))
+        outv[s, :] = Array(generate(prob, xis))       # generate already returns T
     end
     results["generate"] = outv
 end
@@ -79,7 +84,7 @@ end
 if "generate_inv" in ops
     values = T.(vec(d["values"]))                     # ORIGINAL order
     usegpu && (values = CuArray(values))
-    results["generate_inv"] = Float64.(Array(generate_inv(prob, values)))   # ORIGINAL order out
+    results["generate_inv"] = Array(generate_inv(prob, values))   # ORIGINAL order out, dtype T
 end
 
 if "logdet" in ops

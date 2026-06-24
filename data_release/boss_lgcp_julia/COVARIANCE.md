@@ -39,21 +39,38 @@ on one A6000 — the practical payoff of the GPU engine + the amortized build.
 The convergence diagnostic is NOT flat (last-half→end change ~55–73%): a few multi-occupancy-tail
 realizations dominate the small-scale variance, so N=1000 is not yet converged there.
 
-## What this means / next steps (in priority)
+## What the four next-steps actually found (resolved; see DIAGNOSTICS.md for the data)
 
-1. **Kill multi-occupancy properly** — raise `n_cand` until p<1 even at field peaks (density-matched),
-   NOT Bernoulli (which under-clusters globally). This fixes the small-scale over-dispersion + the
-   non-convergence, and is the single biggest fidelity lever.
-2. **More independent candidate sets** — smaller `--batch` (more graph builds) so the large-scale
-   sample variance is properly sampled; fixes the wp/ξ₀ large-scale under-dispersion.
-3. **External cross-check** — compare ξ₀/ξ₂ covariance to EZmocks/Patchy; the angular jackknife
-   structurally mis-estimates the multipole variance (over-estimates monopole large-scale,
-   under-estimates quadrupole), so it cannot by itself validate the multipoles.
-4. **Field fidelity** — for publishable multipole covariance, the lognormal model likely needs the
-   non-Gaussian Tier-A transform (it mismatches higher-order statistics).
+All four were executed. The headline: **against the external Patchy truth the lognormal-LGCP
+clustering covariance is 2–6× over-dispersed, and that over-dispersion is intrinsic — two independent
+in-house levers (#1, #4) provably cannot remove it.**
 
-**Status:** the covariance *pipeline* is validated and fast (1000 mocks/40 min, valid Hartlap, jackknife
-cross-check); the wp covariance is usable at intermediate scales; the multipole + small/large-scale
-covariance need the multi-occupancy + candidate-independence + external-cross-check work above before
-they are publication-grade. Products: `covariance/covariance_poisson_N1000_cf20.npz` (cov + Hartlap +
-jackknife) and `covariance/measurements_poisson_N1000_cf20.npz` (per-realization wp/ξ₀/ξ₂).
+1. **#1 density-match via `n_cand` — INTRACTABLE.** `multi_frac ∝ cf⁻⁰·⁴⁷` (measured 0.195/0.143/0.101
+   at cf=20/40/80), so the target ≲0.02 needs cf≈2400 (≈2.6×10⁸ points). Closed.
+2. **#2 more independent candidate sets — REAL but PARTIAL.** `--batch 50` → 20 candidate sets (vs 5)
+   dropped wp over-dispersion vs Patchy 5.8→4.0× and the small-scale extremes (bin-0 33→22). Kept as
+   the better LGCP covariance, but 2–4× over-dispersion remains.
+3. **#3 external Patchy cross-check — DONE, and it is the answer.** 600 MultiDark-Patchy DR12-SGC mocks
+   (`pipeline/build_patchy_covariance.py`, Hartlap 0.975, same estimator/binning, data-matched
+   z∈0.45–0.60, N=109,636). σ_lgcp/σ_patchy median: wp 3.98, ξ₀ 2.08, ξ₂ 2.53 (#2 covariance). The
+   angular jackknife disagrees with Patchy (flips sign for ξ₀), confirming it cannot validate the
+   multipoles. **Patchy is the standard BOSS covariance and is now built — use it for the covariance.**
+4. **#4 Tier-A non-Gaussian transform — DEAD, same deep cause as #1.** Built + measured
+   (`pipeline/diag_tierA.py`): no intensity transform reduces multi-occupancy while preserving the
+   2-pt, because multi-occupancy ∝ `var(1+δ)=ξ(0,0)≈63`, which the 2-pt locks (skew=30 → multi_frac
+   unchanged; skew≤10 → 2-pt collapses, K_out/K_in 0.32→0.09). The only lever left is *reducing* σ²
+   (smoothing to the candidate scale), a separate method-changing direction that sacrifices the
+   sub-candidate-spacing 2-pt.
+
+**Bottom line.** For the **clustering covariance**, ship **Patchy** (external standard, now built);
+the lognormal-LGCP covariance is intrinsically over-dispersed (a known property of high-σ² lognormal
+mocks) and is documented as such. The **LGCP mocks remain the right engine for the field-level
+completion / posterior work** (their purpose), where the over-dispersion is irrelevant. Reusable
+infra delivered: f32 bridge output (2× ZIP32 batch ceiling), `echoes/nongauss_lgcp.py` (validated
+Gaussianization), the Patchy covariance pipeline, `pipeline/compare_covariances.py`.
+
+**Products:**
+- `covariance/covariance_patchy_N600.npz` — **the recommended BOSS clustering covariance** (wp/ξ₀/ξ₂).
+- `covariance/covariance_poisson_N1000_cf20_sets20.npz` — best LGCP covariance (20 candidate sets;
+  2–4× over-dispersed vs Patchy, documented).
+- `covariance/covariance_poisson_N1000_cf20.npz` — original 5-set LGCP covariance (kept for the record).
