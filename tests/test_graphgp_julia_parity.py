@@ -132,7 +132,47 @@ def test_gate1_generate_inverse_roundtrip():
         shutil.rmtree(work, ignore_errors=True)
 
 
+def test_gate2_backend_field_equivalence():
+    """Gate 2: the ``graphgp_backend.generate_field`` switch yields the SAME field for the same xi
+    under either backend (deterministic; the field is L·xi). Validates the P1 heavy-Vecchia drop-in.
+    Tolerance is loose (f32 GPU/quantization, not f64 parity) but far below the order-1 difference a
+    wrong graph/permutation would cause."""
+    import jax.numpy as jnp
+    import graphgp as gp
+    from echoes import graphgp_backend as gb
+
+    rng = np.random.default_rng(2)
+    n, ndim, n0, k = 1800, 3, 48, 16
+    # mildly clustered points (two blobs) so the graph is non-uniform like a real field
+    a = rng.normal([5, 5, 5], 3.0, (n // 2, ndim))
+    b = rng.normal([25, 20, 15], 4.0, (n - n // 2, ndim))
+    points = np.vstack([a, b])
+    cov = _strexp_kernel()
+    xi = rng.standard_normal((n, 2))                            # batch of 2 fields
+
+    work = tempfile.mkdtemp(prefix="echoes_ggp_gate2_")
+    try:
+        # share ONE graph so the only thing under test is the numerics, not graph-build determinism
+        in_npz, d, scale = _build(points, n0, k, cov, work)
+        ref_graph = gp.Graph(points=jnp.asarray(scale * d["coords"].astype(np.float64)),
+                             neighbors=jnp.asarray(d["neighbors"].astype(np.int32)),
+                             offsets=tuple(int(x) for x in d["offsets"]),
+                             indices=jnp.asarray(d["indices"].astype(np.int64)))
+        f_jax = gb.generate_field(points, cov, xi, n0=n0, k=k, backend="jax", graph=ref_graph)
+        f_jul = gb.generate_field(points, cov, xi, n0=n0, k=k, backend="julia", device="cpu",
+                                  graph_npz=in_npz, dtype="f64")
+        assert f_jax.shape == f_jul.shape == (2, n)
+        rel = float(np.linalg.norm(f_jax - f_jul) / (np.linalg.norm(f_jax) + 1e-30))
+        print(f"\nGATE 2  L2-rel(jax,julia) field ={rel:.3e}")
+        # ~1e-7: the bridge stores the kernel TABLE as f32 (cov_vals32); the numerics are f64-identical
+        # (Gate 0 = 5e-15). Far below the O(1) error a wrong graph/permutation would produce.
+        assert rel < 1e-5, f"backend field mismatch (L2-rel {rel:.3e}); a wrong graph would be O(1)"
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_gate0_generate_parity_original_order()
     test_gate1_generate_inverse_roundtrip()
+    test_gate2_backend_field_equivalence()
     print("ALL GATES PASSED")

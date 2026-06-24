@@ -213,6 +213,8 @@ def compute_2pt_weights(
     seed: int = 0,
     n_kernel_bins: int = 200,
     return_diagnostics: bool = False,
+    backend: str = "jax",
+    device: str = "cpu",
 ):
     """Layer III per-point density weights via a Vecchia GP sample.
 
@@ -359,8 +361,16 @@ def compute_2pt_weights(
         raise ValueError(f"unknown mode: {mode!r}")
 
     if mode != "posterior_sample":
-        # 4. Apply the Vecchia Cholesky factor (prior_sample / data_driven).
-        delta = np.asarray(gp.generate(graph, cov, jnp.asarray(xi_white)))
+        # 4. Apply the Vecchia Cholesky factor (prior_sample / data_driven). The default JAX path
+        # runs in-process; backend="julia" routes the single batched generate through GraphGP.jl
+        # (no (M,k+1,k+1) materialization → runs where JAX OOMs), same field, original order.
+        if backend == "julia":
+            from .graphgp_backend import generate_field
+            delta = generate_field(
+                np.asarray(positions), (np.asarray(cov[0]), np.asarray(cov[1])), xi_white,
+                n0=min(n0, max(2, N // 2)), k=min(k, N - 1), backend="julia", device=device)
+        else:
+            delta = np.asarray(gp.generate(graph, cov, jnp.asarray(xi_white)))
 
     weights = 1.0 + delta
 

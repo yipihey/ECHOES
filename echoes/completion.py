@@ -795,6 +795,8 @@ def generate_catalogs_from_kernel(
     k: int = 30,
     sampling: str = "poisson",
     chunk_size: Optional[int] = 50_000,
+    backend: str = "jax",
+    device: str = "cpu",
     verbose: bool = False,
 ):
     """LGCP catalogs from a *prebuilt* anisotropic kernel ``cov`` (σ²=``sigma2``).
@@ -827,14 +829,33 @@ def generate_catalogs_from_kernel(
     points = jnp.asarray(np.hstack([nhat_c, (alpha * z_c)[:, None]]), dtype=jnp.float64)
     if verbose:
         print(f"[K2d-gen] {n_cand:,} candidates; building graph (α={alpha}) ...")
-    graph = gp.build_graph(points, n0=min(n0, n_cand // 2), k=min(k, n_cand - 1))
     sig = np.sqrt(max(sigma2, 1e-12))
+    n0e, ke = min(n0, n_cand // 2), min(k, n_cand - 1)
+
+    # Field draws: backend="julia" generates all n_samples in ONE GraphGP.jl subprocess (no
+    # (M,k+1,k+1) materialization → runs where JAX OOMs at this n_cand·k); JAX builds the graph
+    # once and draws per-sample in-process. Both consume the SAME cov and candidate order.
+    if backend == "julia":
+        from .graphgp_backend import generate_field
+        eps_all = np.stack([np.random.default_rng(seed + 1 + s).standard_normal(n_cand)
+                            for s in range(n_samples)], axis=1)              # (n_cand, S)
+        F = np.atleast_2d(generate_field(np.asarray(points), cov, eps_all, n0=n0e, k=ke,
+                                         backend="julia", device=device))     # (S, n_cand)
+        graph = None
+    else:
+        graph = gp.build_graph(points, n0=n0e, k=ke)
 
     out = []
     for s in range(n_samples):
-        eps = np.random.default_rng(seed + 1 + s).standard_normal(n_cand)
-        f = np.asarray(gp.generate(graph, cov, jnp.asarray(eps, dtype=jnp.float64),
-                                   chunk_size=chunk_size))
+        if backend == "julia":
+            f = F[s]
+        else:
+            eps = np.random.default_rng(seed + 1 + s).standard_normal(n_cand)
+            try:
+                f = np.asarray(gp.generate(graph, cov, jnp.asarray(eps, dtype=jnp.float64),
+                                           chunk_size=chunk_size))
+            except TypeError:                                                # installed graphgp has no chunk_size
+                f = np.asarray(gp.generate(graph, cov, jnp.asarray(eps, dtype=jnp.float64)))
         f = np.where(np.isfinite(f), f, 0.0)
         f = np.clip(f, -8.0 * sig, 8.0 * sig)
         opd = np.exp(f - 0.5 * sigma2)
