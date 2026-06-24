@@ -53,10 +53,27 @@ def _x64_disabled():
 
 # locations (overridable via env for other machines)
 JULIA = os.environ.get("ECHOES_JULIA", os.path.expanduser("~/.juliaup/bin/julia"))
-GRAPHGP_JL = os.environ.get("ECHOES_GRAPHGP_JL",
-                            os.path.expanduser("~/Projects/graphgp-julia/julia/GraphGP"))
-DRIVER = os.path.join(GRAPHGP_JL, "bench", "compare", "run_graphgp.jl")
-BENCH_PROJ = os.path.join(GRAPHGP_JL, "bench")
+
+
+def _find_graphgp_jl():
+    """Locate the GraphGP.jl repo (only its `bench` Project.toml is needed — it path-deps the
+    package). Auto-detected so the upstream repo can be renamed/restructured without breaking us:
+    ``$ECHOES_GRAPHGP_JL`` if set, else the standalone ``~/Projects/GraphGP.jl``, else the legacy
+    nested ``~/Projects/graphgp-julia/julia/GraphGP``."""
+    cands = [os.environ.get("ECHOES_GRAPHGP_JL")]
+    cands += [os.path.expanduser(p) for p in
+              ("~/Projects/GraphGP.jl", "~/Projects/graphgp-julia/julia/GraphGP")]
+    for c in cands:
+        if c and os.path.isfile(os.path.join(c, "bench", "Project.toml")):
+            return c
+    return os.path.expanduser("~/Projects/GraphGP.jl")
+
+
+GRAPHGP_JL = _find_graphgp_jl()
+BENCH_PROJ = os.path.join(GRAPHGP_JL, "bench")          # the Julia project (path-deps the package)
+# The driver SCRIPTS are vendored INSIDE ECHOES (echoes/jl/) so the upstream repo's renames/resets
+# can't delete them out from under a running pipeline; only the GraphGP *package* comes from the repo.
+DRIVER = os.path.join(os.path.dirname(__file__), "jl", "run_graphgp.jl")
 _LMAX = (1 << 21) - 1                                   # 21-bit/axis lattice (graphgp convention)
 
 

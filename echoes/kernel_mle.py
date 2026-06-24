@@ -21,7 +21,7 @@ import numpy as np
 
 from . import graphgp_julia as ggj
 
-_DRIVER = os.path.join(ggj.GRAPHGP_JL, "bench", "compare", "run_kernel_mle.jl")
+_DRIVER = os.path.join(os.path.dirname(ggj.DRIVER), "run_kernel_mle.jl")   # vendored in echoes/jl/
 
 
 def make_cov_bins(r_min, r_max, n_bins):
