@@ -40,8 +40,9 @@ def measure_Kout(cat, ra, dec, z, te, ze, n_rand_factor=3, seed=0):
     w_r = fkp_weight_of_z(z_r, np.asarray(cat.z_data), cat.w_fkp_data) \
         if cat.w_fkp_data is not None else np.ones(len(ra_r))
     w_d = np.ones(len(ra))
-    return measure_K2d(ra, dec, z, w_d, ra_r, dec_r, z_r, w_r,
-                       theta_edges=te, z_edges=ze, return_counts=False)
+    _, _, xi = measure_K2d(ra, dec, z, w_d, ra_r, dec_r, z_r, w_r,
+                           theta_edges=te, z_edges=ze, return_counts=False)
+    return xi                                            # (n_theta, n_z) ξ(Δθ, Δz)
 
 
 def main():
@@ -94,18 +95,29 @@ def main():
     t["generate"] = time.perf_counter() - _t
     print(f"[boss-lgcp] generated {args.n_samples} catalogs [generate {t['generate']:.1f}s]", flush=True)
 
-    c0 = cats[0]
-    if not args.skip_validate:
-        # science validation: re-measured K_out of catalog 0 vs K_in, at the core (Δθ small, Δz=0)
-        K_out = measure_Kout(cat, c0["ra"], c0["dec"], c0["z"], te, ze, seed=7)
-        core_in = float(np.log1p(xi_in[0, 0]))
-        core_out = float(np.log1p(np.clip(K_out[0, 0], -0.99, None)))
-        print(f"[boss-lgcp] K core  in={core_in:.3f}  out={core_out:.3f}  "
-              f"(N_gal sample0={c0['N_galaxies']:,})", flush=True)
-
+    # persist the catalogs FIRST (so a validation hiccup never loses the generated ensemble)
     for i, c in enumerate(cats):
         np.savez_compressed(os.path.join(OUT, f"cmass_south_lgcp_{args.backend}_{i}.npz"),
                             ra=c["ra"], dec=c["dec"], z=c["z"], N_galaxies=np.int64(c["N_galaxies"]))
+
+    c0 = cats[0]
+    if not args.skip_validate:
+        # science validation: re-measure K(Δθ,Δz) of generated catalog 0 and compare to the input
+        # K_in. Report the log-kernel K = ln(1+ξ) at the core and along the Δz=0 angular profile.
+        xi_out = measure_Kout(cat, c0["ra"], c0["dec"], c0["z"], te, ze, seed=7)
+        Kin = np.log1p(np.clip(xi_in, -0.99, None))
+        Kout = np.log1p(np.clip(xi_out, -0.99, None))
+        theta_c = np.sqrt(te[1:-1] * te[2:]); theta_c = np.concatenate([[0.5 * te[1]], theta_c])
+        print(f"[boss-lgcp] K(Δθ, Δz=0) profile  in -> out  (N_gal sample0={c0['N_galaxies']:,})",
+              flush=True)
+        for j in range(min(8, len(theta_c))):
+            print(f"    Δθ={theta_c[j]*60:6.1f}'   K_in={Kin[j,0]:+.3f}   K_out={Kout[j,0]:+.3f}",
+                  flush=True)
+        # overall agreement of the log-kernel over the well-measured bins (|K_in|>0.02)
+        sel = np.abs(Kin) > 0.02
+        rms = float(np.sqrt(np.mean((Kout[sel] - Kin[sel]) ** 2))) if sel.any() else float("nan")
+        print(f"[boss-lgcp] K core in={Kin[0,0]:+.3f} out={Kout[0,0]:+.3f}  |  "
+              f"log-kernel RMS(out-in) over measured bins = {rms:.3f}", flush=True)
     total = time.perf_counter() - T0
     print(f"[boss-lgcp] wrote {len(cats)} catalogs to {os.path.relpath(OUT)}", flush=True)
     print(f"[boss-lgcp] TIMING  load={t['load']:.1f}s  measure+kernel={t['measure+kernel']:.1f}s  "
