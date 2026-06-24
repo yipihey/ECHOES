@@ -15,10 +15,25 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 
 import numpy as np
+
+
+def _scratch_base():
+    """Base dir for the bridge's temp NPZ dumps. A large ensemble dumps a (n_cand, n_samples)
+    white-noise array (multi-GB) that overflows the small /tmp, so prefer a fast/large scratch:
+    ``$ECHOES_SCRATCH`` if set, else the nvme zfs pool if present, else None (tempfile default)."""
+    d = os.environ.get("ECHOES_SCRATCH")
+    if d:
+        os.makedirs(d, exist_ok=True)
+        return d
+    for c in ("/zpool/nvme/data/tabel/echoes_scratch",):
+        if os.path.isdir(c):
+            return c
+    return None
 
 
 @contextlib.contextmanager
@@ -111,9 +126,19 @@ def run_graphgp(points, n0, k, cov_bins, cov_vals, *, ops=("generate",), xi=None
     {generate, generate_inv, logdet, grad}. ``xi`` (N,) or (N,n_samples) and ``values`` (N,) are in
     ORIGINAL order. Returns a dict with the requested keys (generate → (n_samples,N) original order)."""
     assert device in ("cpu", "gpu") and dtype in ("f32", "f64")
-    work = work_dir or tempfile.mkdtemp(prefix="echoes_ggp_")
+    _auto = work_dir is None                              # auto-created dirs get cleaned up below
+    work = work_dir or tempfile.mkdtemp(prefix="echoes_ggp_", dir=_scratch_base())
     in_npz = os.path.join(work, "in.npz"); out_npz = os.path.join(work, "out.npz")
+    try:
+        return _run_graphgp_inner(points, n0, k, cov_bins, cov_vals, ops, xi, values, device, dtype,
+                                  julia_threads, _graph_npz, aniso, build_in_julia, in_npz, out_npz)
+    finally:
+        if _auto:
+            shutil.rmtree(work, ignore_errors=True)       # free the multi-GB dump after each call
 
+
+def _run_graphgp_inner(points, n0, k, cov_bins, cov_vals, ops, xi, values, device, dtype,
+                       julia_threads, _graph_npz, aniso, build_in_julia, in_npz, out_npz):
     if build_in_julia:
         dump_build_npz(points, n0, k, cov_bins, cov_vals, in_npz, aniso=aniso)
     elif _graph_npz is None:
@@ -138,7 +163,8 @@ def run_graphgp(points, n0, k, cov_bins, cov_vals, *, ops=("generate",), xi=None
     res = subprocess.run(cmd, env=env, capture_output=True, text=True)
     if res.returncode != 0 or not os.path.exists(out_npz):
         raise RuntimeError(f"run_graphgp.jl failed (rc={res.returncode}):\n{res.stderr[-2000:]}")
-    out = {kk: np.asarray(v) for kk, v in np.load(out_npz).items()}
+    with np.load(out_npz) as _npz:                        # close before the caller's rmtree
+        out = {kk: np.asarray(v) for kk, v in _npz.items()}
     if "logdet" in out:
         out["logdet"] = float(out["logdet"])
     return out
