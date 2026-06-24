@@ -84,7 +84,8 @@ def build_local_gp_field(
         y = 1.0 / nbar - 1.0
         noise = 1.0 / nbar
         _, samples = field_posterior_vecchia(points_data, y, noise, grid_pts, (cov_bins, cov_vals),
-                                             n_samples=1, seed=seed, n0=n0, k=k, jitter=jitter)
+                                             n_samples=1, seed=seed, n0=n0, k=k, jitter=jitter,
+                                             device=device, build_in_julia=build_in_julia)
         g = samples[0]
     else:
         raise ValueError(f"unknown mode {mode!r} (expected 'prior' or 'posterior_sample')")

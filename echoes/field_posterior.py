@@ -189,6 +189,8 @@ def field_posterior_vecchia(
     cg_tol: float = 1e-8,
     cg_maxiter: int = 500,
     work_dir: Optional[str] = None,
+    device: str = "cpu",
+    build_in_julia: bool = False,
 ):
     """Scalable GraphGP version of :func:`gp_posterior_dense` / :func:`gp_sample_dense`.
 
@@ -205,7 +207,7 @@ def field_posterior_vecchia(
     Returns ``mean`` ``(N_*,)``; if ``n_samples>0`` also ``samples`` ``(n_samples, N_*)`` (Matheron
     draws — correct posterior mean, variance, AND cross-point correlations).
     """
-    from .graphgp_julia import build_graph_npz, JULIA, DRIVER, BENCH_PROJ  # noqa: F401
+    from .graphgp_julia import build_graph_npz, dump_build_npz, JULIA, DRIVER, BENCH_PROJ  # noqa: F401
     import os
     import subprocess
     import tempfile
@@ -224,7 +226,11 @@ def field_posterior_vecchia(
     work = work_dir or tempfile.mkdtemp(prefix="echoes_post_")
     in_npz = os.path.join(work, "post.npz")
     out_npz = os.path.join(work, "post_out.npz")
-    build_graph_npz(Xall, n0, min(k, len(Xall) - 1), cov_bins, cov_vals, in_npz)
+    kk = min(k, len(Xall) - 1)
+    if build_in_julia:
+        dump_build_npz(Xall, n0, kk, cov_bins, cov_vals, in_npz)   # build_graph_ka on the backend
+    else:
+        build_graph_npz(Xall, n0, kk, cov_bins, cov_vals, in_npz)
     base = dict(np.load(in_npz))
     base.update(data_mask=data_mask, y_data=y_data, noise_var=nv,
                 n_samples=np.int64(max(n_samples, 0)), seed=np.int64(seed),
@@ -233,7 +239,7 @@ def field_posterior_vecchia(
     np.savez(in_npz, **base)
 
     driver = os.path.join(os.path.dirname(DRIVER), "run_posterior.jl")
-    cmd = [JULIA, "-t", "8", "--project=" + BENCH_PROJ, driver, in_npz, out_npz]
+    cmd = [JULIA, "-t", "8", "--project=" + BENCH_PROJ, driver, in_npz, out_npz, device]
     res = subprocess.run(cmd, env=dict(os.environ), capture_output=True, text=True)
     if res.returncode != 0 or not os.path.exists(out_npz):
         raise RuntimeError(f"run_posterior.jl failed (rc={res.returncode}):\n{res.stderr[-2000:]}")
