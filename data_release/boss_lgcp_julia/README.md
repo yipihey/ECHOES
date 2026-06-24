@@ -10,5 +10,29 @@ the Julia GPU path to **5.6e-8** vs CPU. Julia-GPU is the no-OOM path: at `n_can
 pure-JAX-GPU OOMs on the 46 GB A6000 (it materialises the `(M,31,31)` tensor) while GraphGP.jl
 generates at ~13 M pts/s.
 
-Files: `cmass_south_lgcp_julia_<i>.npz` — `(ra, dec, z)` of LGCP-sampled galaxies per field draw.
-Reproduce: `JAX_PLATFORMS=cpu python pipeline/build_boss_lgcp_catalogs.py --n-cand-factor 20 --n-samples 5 --device gpu`.
+Files: `cmass_south_lgcp_julia_<sampling>_<i>.npz` — `(ra, dec, z)` of LGCP-sampled galaxies per field
+draw, where `<sampling>` ∈ {`poisson`, `bernoulli`}.
+
+Reproduce (the released default): `JAX_PLATFORMS=cpu python pipeline/build_boss_lgcp_catalogs.py
+--n-data-meas 50000 --n-cand-factor 20 --n-samples 10 --device gpu` (Poisson, the `--sampling` default).
+
+## Released default: **Poisson** sampling
+
+`--sampling poisson` (inhomogeneous-Poisson draw from the log-normal intensity) is the release default.
+Validated by re-measuring `K(Δθ, Δz=0)` of a generated catalog vs the input `K_in`: it recovers the
+clustering across the **resolved** angular range (Δθ ≳ 1.4′; resolved-scale RMS of `ln(1+ξ)` ≈ 0.33).
+Its only blemish is the smallest, **sub-resolution** bin (Δθ ≈ 0.6′), which overshoots because ~20% of
+occupied candidates carry >1 galaxy (`multi_frac` ≈ 0.20) → an unphysical Δθ→0 multi-occupancy spike.
+
+### Why not Bernoulli (the documented alternative)
+
+`--sampling bernoulli` (≤1 galaxy per candidate) removes the 0.6′ spike (`multi_frac` → 0), **but
+over-corrects**: at the fitted kernel amplitude (σ² ≈ 4.1) the field peaks have occupation probability
+→1, and clipping those high-density cells throws away real power at *every* scale — `K_out` drops to
+≈½ `K_in` across the board (resolved-scale RMS ≈ 0.86, ~2.6× worse than Poisson). So Bernoulli trades
+one cosmetic sub-resolution bin for a global ~2× under-clustering.
+
+**Recommendation:** ship Poisson. The 0.6′ bin is below the angular resolution and does not affect the
+science; the resolved-scale recovery is good. If a clean 0.6′ bin is ever required *without* the
+Bernoulli penalty, raise `n_cand` (oversample even the peaks so p<1 everywhere) rather than switching
+to Bernoulli. Both sample sets are kept on disk for comparison (`..._poisson_*`, `..._bernoulli_*`).
