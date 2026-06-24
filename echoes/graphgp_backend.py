@@ -46,7 +46,7 @@ def _aniso_dict(cov):
 
 
 def generate_field(points, cov, xi, *, n0, k, backend=None, device="cpu",
-                   graph=None, graph_npz=None, dtype="f32"):
+                   graph=None, graph_npz=None, dtype="f32", build_in_julia=False):
     """Draw GP field(s) ``L·xi`` at ``points`` with the chosen backend.
 
     Parameters
@@ -91,7 +91,7 @@ def generate_field(points, cov, xi, *, n0, k, backend=None, device="cpu",
         from . import graphgp_julia as ggj
         res = ggj.run_graphgp(np.asarray(points), n0, k, cov_bins, cov_vals,
                               ops=("generate",), xi=xi2d, device=device, dtype=dtype,
-                              _graph_npz=graph_npz, aniso=aniso)
+                              _graph_npz=graph_npz, aniso=aniso, build_in_julia=build_in_julia)
         out = np.asarray(res["generate"], np.float64)         # (S, N) original order
         return out[0] if was_1d else out
 

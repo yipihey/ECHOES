@@ -840,7 +840,8 @@ def generate_catalogs_from_kernel(
         eps_all = np.stack([np.random.default_rng(seed + 1 + s).standard_normal(n_cand)
                             for s in range(n_samples)], axis=1)              # (n_cand, S)
         F = np.atleast_2d(generate_field(np.asarray(points), cov, eps_all, n0=n0e, k=ke,
-                                         backend="julia", device=device))     # (S, n_cand)
+                                         backend="julia", device=device,
+                                         build_in_julia=True))                # (S, n_cand): build+gen in Julia
         graph = None
     else:
         graph = gp.build_graph(points, n0=n0e, k=ke)

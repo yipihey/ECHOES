@@ -125,14 +125,21 @@ def part_b(cov, dmax=150.0, box=300.0):
 
 
 def main():
+    import time
+    t = {}
+    t0 = time.perf_counter()
     cov = fiducial_kernel()
-    relA, _ = part_a(cov)
-    relB, _ = part_b(cov)
+    ta = time.perf_counter(); relA, _ = part_a(cov); t["A_prior_cube"] = time.perf_counter() - ta
+    tb = time.perf_counter(); relB, _ = part_b(cov); t["B_posterior_inpaint"] = time.perf_counter() - tb
+    total = time.perf_counter() - t0
     print("\n=== SUMMARY ===")
     print(f"  A engine equivalence (jax vs julia, shared graph): {relA:.3e}  "
           f"[{'PASS' if relA < 1e-5 else 'FAIL'}]")
     print(f"  B posterior vs dense JAX (real 2M++ subsample):    {relB:.3e}  "
           f"[{'PASS' if relB < 1e-3 else 'FAIL'}]")
+    print(f"  TIMING  A(prior 64^3 cube)={t['A_prior_cube']:.1f}s  "
+          f"B(posterior 48^3 inpaint, 36.9k galaxies)={t['B_posterior_inpaint']:.1f}s  "
+          f"TOTAL={total:.1f}s")
     print(f"  products written under {os.path.relpath(OUT)}")
 
 

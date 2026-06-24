@@ -57,29 +57,40 @@ def main():
     ap.add_argument("--compare-jax", action="store_true", help="also generate one JAX catalog to cross-check")
     args = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
+    import time
+    t = {}; T0 = time.perf_counter()
 
     print(f"[boss-lgcp] loading CMASS-South (randoms) ...", flush=True)
+    _t = time.perf_counter()
     cat = load_boss([DATA], [RAND], sample="CMASS", nside=256)
+    t["load"] = time.perf_counter() - _t
     w_comp = cat.w_sys_data * cat.w_noz_data * cat.w_cp_data
     n_cand = args.n_cand_factor * cat.N_data
-    print(f"[boss-lgcp] N_data={cat.N_data:,}  n_cand={n_cand:,}  backend={args.backend}", flush=True)
+    print(f"[boss-lgcp] N_data={cat.N_data:,}  n_cand={n_cand:,}  backend={args.backend} "
+          f"[load {t['load']:.1f}s]", flush=True)
 
     te = np.concatenate([[0.0], np.geomspace(0.02, 2.5, 16)])
     ze = np.linspace(0.0, 0.03, 11)
 
     print("[boss-lgcp] measuring K_in (window-deconvolved LS) ...", flush=True)
+    _t = time.perf_counter()
     _, _, xi_w, cnt = measure_K2d_data(cat, theta_edges=te, z_edges=ze,
                                        n_data=args.n_data_meas, n_rand_factor=args.n_rand_meas,
                                        seed=0, return_counts=True)
     xi_in, ic = deconvolve_window(xi_w, cnt["rr"])
     cov, sigma2 = kernel_from_K2d(te, ze, xi_in, alpha=args.alpha)
-    print(f"[boss-lgcp] K_in IC={ic:.4f}  kernel σ²={sigma2:.3f}  cov={type(cov).__name__}", flush=True)
+    t["measure+kernel"] = time.perf_counter() - _t
+    print(f"[boss-lgcp] K_in IC={ic:.4f}  kernel σ²={sigma2:.3f}  cov={type(cov).__name__} "
+          f"[measure+kernel {t['measure+kernel']:.1f}s]", flush=True)
 
-    print(f"[boss-lgcp] generating {args.n_samples} catalogs ({args.backend}) ...", flush=True)
+    print(f"[boss-lgcp] generating {args.n_samples} catalogs ({args.backend}/{args.device}) ...", flush=True)
+    _t = time.perf_counter()
     cats = generate_catalogs_from_kernel(
         cat, cov, sigma2, alpha=args.alpha, n_samples=args.n_samples, seed=1,
         w_completeness=w_comp, n_cand_factor=args.n_cand_factor,
         backend=args.backend, device=args.device, verbose=True)
+    t["generate"] = time.perf_counter() - _t
+    print(f"[boss-lgcp] generated {args.n_samples} catalogs [generate {t['generate']:.1f}s]", flush=True)
 
     # science validation: re-measured K_out of catalog 0 vs K_in, at the core (Δθ small, Δz=0)
     c0 = cats[0]
@@ -92,7 +103,11 @@ def main():
     for i, c in enumerate(cats):
         np.savez_compressed(os.path.join(OUT, f"cmass_south_lgcp_{args.backend}_{i}.npz"),
                             ra=c["ra"], dec=c["dec"], z=c["z"], N_galaxies=np.int64(c["N_galaxies"]))
+    total = time.perf_counter() - T0
     print(f"[boss-lgcp] wrote {len(cats)} catalogs to {os.path.relpath(OUT)}", flush=True)
+    print(f"[boss-lgcp] TIMING  load={t['load']:.1f}s  measure+kernel={t['measure+kernel']:.1f}s  "
+          f"generate({args.n_samples} @ n_cand={n_cand:,}, {args.backend}/{args.device})="
+          f"{t['generate']:.1f}s  TOTAL={total:.1f}s", flush=True)
 
     if args.compare_jax and args.backend == "julia":
         print("[boss-lgcp] cross-check: one JAX catalog (same seed) ...", flush=True)

@@ -89,9 +89,24 @@ def build_graph_npz(points, n0, k, cov_bins, cov_vals, npz_path, *, cuda=False, 
     return graph, scale
 
 
+def dump_build_npz(points, n0, k, cov_bins, cov_vals, npz_path, *, aniso=None):
+    """Dump RAW points for the build-in-Julia path: GraphGP.jl ``build_graph_ka`` does the k-d tree
+    build + neighbor query + depth order + quantize on the backend (GPU), so the WHOLE field pipeline
+    (build + generate) runs in one Julia process — no Python ``gp.build_graph``."""
+    extra = {}
+    if aniso is not None:
+        extra = dict(aniso_spatial_bins=np.asarray(aniso["spatial_bins"], np.float32),
+                     aniso_z_bins=np.asarray(aniso["z_bins"], np.float32),
+                     aniso_grid=np.asarray(aniso["grid"], np.float32),
+                     aniso_alpha=np.float64(aniso["alpha"]))
+    np.savez(npz_path, build_points=np.asarray(points, np.float32), n0=np.int64(n0), k=np.int64(k),
+             cov_bins32=np.asarray(cov_bins, np.float32), cov_vals32=np.asarray(cov_vals, np.float32),
+             **extra)
+
+
 def run_graphgp(points, n0, k, cov_bins, cov_vals, *, ops=("generate",), xi=None, values=None,
                 device="cpu", dtype="f32", julia_threads=8, work_dir=None, _graph_npz=None,
-                aniso=None):
+                aniso=None, build_in_julia=False):
     """Run GraphGP.jl ops on a graph of ``points`` (original order). ``ops`` ⊆
     {generate, generate_inv, logdet, grad}. ``xi`` (N,) or (N,n_samples) and ``values`` (N,) are in
     ORIGINAL order. Returns a dict with the requested keys (generate → (n_samples,N) original order)."""
@@ -99,7 +114,9 @@ def run_graphgp(points, n0, k, cov_bins, cov_vals, *, ops=("generate",), xi=None
     work = work_dir or tempfile.mkdtemp(prefix="echoes_ggp_")
     in_npz = os.path.join(work, "in.npz"); out_npz = os.path.join(work, "out.npz")
 
-    if _graph_npz is None:
+    if build_in_julia:
+        dump_build_npz(points, n0, k, cov_bins, cov_vals, in_npz, aniso=aniso)
+    elif _graph_npz is None:
         build_graph_npz(points, n0, k, cov_bins, cov_vals, in_npz, aniso=aniso)
     else:
         # reuse a prebuilt graph NPZ (amortise the build across calls), append xi/values
