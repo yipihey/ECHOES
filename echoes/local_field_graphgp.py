@@ -46,6 +46,7 @@ def build_local_gp_field(
     seed: int = 0,
     sigma2: float = None,
     jitter: float = 1e-6,
+    build_in_julia: bool = False,
 ):
     """Build a ``GriddedFieldContext`` ``1+δ`` cube on an observer-centred grid.
 
@@ -74,7 +75,7 @@ def build_local_gp_field(
         rng = np.random.default_rng(seed)
         xi = rng.standard_normal(N)
         g = generate_field(grid_pts, (cov_bins, cov_vals), xi, n0=n0, k=k,
-                           backend=backend, device=device)
+                           backend=backend, device=device, build_in_julia=build_in_julia)
     elif mode == "posterior_sample":
         if points_data is None or nbar_data is None:
             raise ValueError("posterior_sample mode requires points_data and nbar_data")

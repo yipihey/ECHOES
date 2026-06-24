@@ -48,13 +48,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n-data-meas", type=int, default=30_000, help="data subsample for the K2d measurement")
     ap.add_argument("--n-rand-meas", type=int, default=3)
-    ap.add_argument("--n-cand-factor", type=int, default=5, help="candidates = factor x N_data")
+    ap.add_argument("--n-cand-factor", type=int, default=20,
+                    help="candidates = factor x N_data (20 = production; cleaner Poisson sampling)")
     ap.add_argument("--n-samples", type=int, default=3)
     ap.add_argument("--alpha", type=float, default=2.0)
     ap.add_argument("--backend", choices=["julia", "jax"], default="julia")
     ap.add_argument("--device", choices=["cpu", "gpu"], default="gpu",
                     help="julia device; 'gpu' is the fast no-OOM path (default)")
     ap.add_argument("--compare-jax", action="store_true", help="also generate one JAX catalog to cross-check")
+    ap.add_argument("--skip-validate", action="store_true", help="skip the K_out re-measurement (timing runs)")
     args = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
     import time
@@ -92,13 +94,14 @@ def main():
     t["generate"] = time.perf_counter() - _t
     print(f"[boss-lgcp] generated {args.n_samples} catalogs [generate {t['generate']:.1f}s]", flush=True)
 
-    # science validation: re-measured K_out of catalog 0 vs K_in, at the core (Δθ small, Δz=0)
     c0 = cats[0]
-    K_out = measure_Kout(cat, c0["ra"], c0["dec"], c0["z"], te, ze, seed=7)
-    core_in = float(np.log1p(xi_in[0, 0]))
-    core_out = float(np.log1p(np.clip(K_out[0, 0], -0.99, None)))
-    print(f"[boss-lgcp] K core  in={core_in:.3f}  out={core_out:.3f}  "
-          f"(N_gal sample0={c0['N_galaxies']:,})", flush=True)
+    if not args.skip_validate:
+        # science validation: re-measured K_out of catalog 0 vs K_in, at the core (Δθ small, Δz=0)
+        K_out = measure_Kout(cat, c0["ra"], c0["dec"], c0["z"], te, ze, seed=7)
+        core_in = float(np.log1p(xi_in[0, 0]))
+        core_out = float(np.log1p(np.clip(K_out[0, 0], -0.99, None)))
+        print(f"[boss-lgcp] K core  in={core_in:.3f}  out={core_out:.3f}  "
+              f"(N_gal sample0={c0['N_galaxies']:,})", flush=True)
 
     for i, c in enumerate(cats):
         np.savez_compressed(os.path.join(OUT, f"cmass_south_lgcp_{args.backend}_{i}.npz"),
