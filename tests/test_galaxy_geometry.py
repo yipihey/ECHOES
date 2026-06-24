@@ -55,3 +55,16 @@ def test_enrich_xmatch_overrides_size_and_shape():
     assert abs(g.b_a[0] - 0.4) < 1e-4 and abs(g.pa_deg[0] - 57.0) < 1e-4
     assert g.geom_source[0] == "sga" and g.morph[0] == "Sb"
     assert g.geom_source[1] == "estimated"                          # unmatched → estimate
+
+
+def test_enrich_carries_pgc_from_leda():
+    # the HyperLEDA cross-match carries a PGC id through for object links/name resolution
+    ra = np.array([150.0, 200.0]); dec = np.array([10.0, -20.0])
+    dist = np.array([50.0, 80.0]); k = np.array([9.0, 10.0])
+    leda = {"ra": np.array([150.0 + 1e-4]), "dec": np.array([10.0 - 1e-4]),
+            "d25_arcmin": np.array([2.0]), "b_a": np.array([0.6]), "pa_deg": np.array([30.0]),
+            "pgc": np.array([41361], dtype=np.int64)}
+    g = enrich_geometry(ra, dec, dist, k, leda=leda)
+    assert g.pgc is not None and g.pgc[0] == 41361          # matched galaxy gets its PGC
+    assert g.pgc[1] == -1                                   # unmatched → -1
+    assert g.as_columns()["pgc"][0] == 41361                # surfaced in the column dict

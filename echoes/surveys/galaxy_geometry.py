@@ -132,15 +132,19 @@ class GalaxyGeometry:
     morph: np.ndarray            # type code string ('' when unknown)
     survey_pref: np.ndarray      # (N, 4) int8 priority-ordered survey codes
     geom_source: np.ndarray      # 'sga' | 'leda' | 'estimated' per galaxy
+    pgc: np.ndarray = None       # HyperLEDA PGC id (int64, -1 unmatched) — for object links/name
 
     def as_columns(self):
         """Flat dict of per-galaxy columns for the viewer bundle (survey_pref → first pick)."""
-        return {
+        cols = {
             "ang_size_arcmin": self.ang_size_arcmin.astype(np.float32),
             "b_a": self.b_a.astype(np.float32),
             "pa_deg": self.pa_deg.astype(np.float32),
             "survey_code": self.survey_pref[:, 0].astype(np.int8),
         }
+        if self.pgc is not None:
+            cols["pgc"] = self.pgc.astype(np.int64)
+        return cols
 
 
 def _xmatch(ra, dec, ref_ra, ref_dec, radius_arcsec=10.0):
@@ -181,6 +185,7 @@ def enrich_geometry(ra, dec, dist_mpc, ksmag, *, sga=None, leda=None, xmatch_arc
     pa = np.zeros(n, np.float32)
     morph = np.array([""] * n, dtype=object)
     src = np.array(["estimated"] * n, dtype=object)
+    pgc = np.full(n, -1, np.int64)
 
     # HyperLEDA first (broad), then SGA on top (deeper / preferred) so SGA wins on overlap.
     for table, tag in ((leda, "leda"), (sga, "sga")):
@@ -195,6 +200,8 @@ def enrich_geometry(ra, dec, dist_mpc, ksmag, *, sga=None, leda=None, xmatch_arc
         good = np.isfinite(d25) & (d25 > 0)
         sel = np.where(m)[0][good]; jj = j[good]
         ang[sel] = d25[good].astype(np.float32)
+        if "pgc" in table:                                # carry the catalog id for object links/name
+            pgc[sel] = np.asarray(table["pgc"], np.int64)[jj]
         if "b_a" in table:
             ba = np.asarray(table["b_a"], float)[jj]
             b_a[sel] = np.where(np.isfinite(ba) & (ba > 0), ba, b_a[sel]).astype(np.float32)
@@ -209,4 +216,4 @@ def enrich_geometry(ra, dec, dist_mpc, ksmag, *, sga=None, leda=None, xmatch_arc
 
     pref = survey_preference(ra, dec, b_gal=b_gal)
     return GalaxyGeometry(ang_size_arcmin=ang, b_a=b_a, pa_deg=pa, morph=morph,
-                          survey_pref=pref, geom_source=src)
+                          survey_pref=pref, geom_source=src, pgc=pgc)
