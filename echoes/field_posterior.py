@@ -208,14 +208,12 @@ def field_posterior_vecchia(
     draws — correct posterior mean, variance, AND cross-point correlations).
 
     .. note::
-       **Keep ``device="cpu"`` for the conditional posterior** (the default). The CG is host-bound —
-       its K-apply ``generate(generate_grad_xi(u))`` calls the adjoint ``generate_grad_xi`` every
-       iteration, whose reverse depth-batch sweep is inherently sequential on the host — so GPU gives
-       no speedup. Worse, ``device="gpu"`` + ``build_in_julia=True`` currently NaNs on real catalogues
-       with coincident points (e.g. 2M++ group members): GPU ``generate`` does not yet degrade
-       gracefully on degenerate Vecchia blocks the way the CPU path does (a GraphGP.jl fix is specced).
-       The forward field generation (``graphgp_backend.generate_field``) IS the GPU fast path; the
-       conditional inpaint is the one operation that stays CPU.
+       ``device="gpu", build_in_julia=True`` is the **fast path** when a GPU is available: the joint
+       graph is built with ``build_graph_ka`` and the CG runs device-resident — ~2.2× faster than CPU
+       on the real 2M++ inpaint (≈83 s vs ≈181 s) and correct (matches the dense reference). It
+       requires the GraphGP.jl degenerate-block fix (landed) so coincident points (e.g. 2M++ group
+       members) no longer NaN. ``device="cpu"`` (the default) is the portable fallback and stays the
+       default so the API works on machines without a GPU.
     """
     from .graphgp_julia import build_graph_npz, dump_build_npz, JULIA, DRIVER, BENCH_PROJ  # noqa: F401
     import os
