@@ -80,7 +80,7 @@ def part_a(cov, box=300.0):
     # A2 — the actual product cube at full resolution, on Julia.
     n_grid = 64
     fc = build_local_gp_field(box, n_grid, cov, mode="prior", backend="julia",
-                              n0=256, k=30, seed=7)
+                              device="gpu", build_in_julia=True, n0=256, k=30, seed=7)
     cube = fc.delta
     print(f"  product cube {cube.shape}: mean={cube.mean():.3f} var={cube.var():.3f} "
           f"min={cube.min():.3f} max={cube.max():.3f}  positive={bool((cube>0).all())}")
@@ -114,7 +114,7 @@ def part_b(cov, dmax=150.0, box=300.0):
     nbar_all = np.full(len(xyz), 0.3)
     fc = build_local_gp_field(box, n_grid, cov, mode="posterior_sample",
                               points_data=xyz, nbar_data=nbar_all, backend="julia",
-                              n0=256, k=30, seed=3)
+                              device="gpu", build_in_julia=True, n0=256, k=30, seed=3)
     cube = fc.delta
     print(f"  inpaint cube {cube.shape}: mean={cube.mean():.3f} "
           f"min={cube.min():.3f} max={cube.max():.3f}  positive={bool((cube>0).all())}", flush=True)
