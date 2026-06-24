@@ -55,8 +55,13 @@ def _quantize(points):
     return origin + scale * coords0.astype(np.float64), origin, scale
 
 
-def build_graph_npz(points, n0, k, cov_bins, cov_vals, npz_path, *, cuda=False):
-    """Build the Vecchia graph with Python ``graphgp`` and dump the bridge NPZ (with ``indices``)."""
+def build_graph_npz(points, n0, k, cov_bins, cov_vals, npz_path, *, cuda=False, aniso=None):
+    """Build the Vecchia graph with Python ``graphgp`` and dump the bridge NPZ (with ``indices``).
+
+    ``aniso`` (optional) carries an anisotropic kernel ``K(Δspatial, Δz)`` as a dict
+    ``{spatial_bins, z_bins, grid (n_s,n_z), alpha}`` (the grid already nugget-inflated). The graph
+    topology is identical — built on the same embedded ``(n̂, α·z)`` points — only the covariance the
+    Julia driver assembles differs; ``cov_bins/cov_vals`` are placeholders then."""
     import jax.numpy as jnp
     import graphgp as gp
 
@@ -68,16 +73,25 @@ def build_graph_npz(points, n0, k, cov_bins, cov_vals, npz_path, *, cuda=False):
             graph = gp.build_graph(jnp.asarray(points_q, jnp.float32), n0=n0, k=k)
     coords = np.rint((np.asarray(graph.points, np.float64) - origin) / scale).astype(np.uint32)
     idx = None if graph.indices is None else np.asarray(graph.indices, np.int64)
+    extra = {}
+    if aniso is not None:
+        extra = dict(
+            aniso_spatial_bins=np.asarray(aniso["spatial_bins"], np.float32),
+            aniso_z_bins=np.asarray(aniso["z_bins"], np.float32),
+            aniso_grid=np.asarray(aniso["grid"], np.float32),          # (n_s, n_z), jitter already in
+            aniso_alpha=np.float64(aniso["alpha"]),
+        )
     np.savez(npz_path,
              coords=coords, neighbors=np.asarray(graph.neighbors, np.int32),
              offsets=np.asarray(graph.offsets, np.int64), n0=np.int64(n0), scale=np.float64(scale),
              cov_bins32=np.asarray(cov_bins, np.float32), cov_vals32=np.asarray(cov_vals, np.float32),
-             **({"indices": idx} if idx is not None else {}))
+             **({"indices": idx} if idx is not None else {}), **extra)
     return graph, scale
 
 
 def run_graphgp(points, n0, k, cov_bins, cov_vals, *, ops=("generate",), xi=None, values=None,
-                device="cpu", dtype="f32", julia_threads=8, work_dir=None, _graph_npz=None):
+                device="cpu", dtype="f32", julia_threads=8, work_dir=None, _graph_npz=None,
+                aniso=None):
     """Run GraphGP.jl ops on a graph of ``points`` (original order). ``ops`` ⊆
     {generate, generate_inv, logdet, grad}. ``xi`` (N,) or (N,n_samples) and ``values`` (N,) are in
     ORIGINAL order. Returns a dict with the requested keys (generate → (n_samples,N) original order)."""
@@ -86,7 +100,7 @@ def run_graphgp(points, n0, k, cov_bins, cov_vals, *, ops=("generate",), xi=None
     in_npz = os.path.join(work, "in.npz"); out_npz = os.path.join(work, "out.npz")
 
     if _graph_npz is None:
-        build_graph_npz(points, n0, k, cov_bins, cov_vals, in_npz)
+        build_graph_npz(points, n0, k, cov_bins, cov_vals, in_npz, aniso=aniso)
     else:
         # reuse a prebuilt graph NPZ (amortise the build across calls), append xi/values
         d = dict(np.load(_graph_npz))
