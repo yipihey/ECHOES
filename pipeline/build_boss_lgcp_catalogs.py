@@ -58,6 +58,8 @@ def main():
                     help="julia device; 'gpu' is the fast no-OOM path (default)")
     ap.add_argument("--compare-jax", action="store_true", help="also generate one JAX catalog to cross-check")
     ap.add_argument("--skip-validate", action="store_true", help="skip the K_out re-measurement (timing runs)")
+    ap.add_argument("--sampling", choices=["poisson", "bernoulli"], default="poisson",
+                    help="bernoulli = <=1 galaxy/candidate, removes the Δθ→0 multi-occupancy spike")
     args = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
     import time
@@ -90,14 +92,14 @@ def main():
     _t = time.perf_counter()
     cats = generate_catalogs_from_kernel(
         cat, cov, sigma2, alpha=args.alpha, n_samples=args.n_samples, seed=1,
-        w_completeness=w_comp, n_cand_factor=args.n_cand_factor,
+        w_completeness=w_comp, n_cand_factor=args.n_cand_factor, sampling=args.sampling,
         backend=args.backend, device=args.device, verbose=True)
     t["generate"] = time.perf_counter() - _t
     print(f"[boss-lgcp] generated {args.n_samples} catalogs [generate {t['generate']:.1f}s]", flush=True)
 
     # persist the catalogs FIRST (so a validation hiccup never loses the generated ensemble)
     for i, c in enumerate(cats):
-        np.savez_compressed(os.path.join(OUT, f"cmass_south_lgcp_{args.backend}_{i}.npz"),
+        np.savez_compressed(os.path.join(OUT, f"cmass_south_lgcp_{args.backend}_{args.sampling}_{i}.npz"),
                             ra=c["ra"], dec=c["dec"], z=c["z"], N_galaxies=np.int64(c["N_galaxies"]))
 
     c0 = cats[0]
