@@ -65,6 +65,8 @@ DEFAULT_DATA_FITS = os.path.join(_REPO_ROOT, "data", "boss",
                                  "galaxy_DR12v5_CMASS_South.fits.gz")
 DEFAULT_SELECTION_NPZ = os.path.join(_REPO_ROOT, "data", "boss",
                                      "boss_selection_2048.npz")
+DEFAULT_MASK_PLY = os.path.join(_REPO_ROOT, "data", "boss",
+                                "mask_DR12v5_CMASS_South.ply")
 
 # simBIG CMASS-South clustering cut (same as echoes.surveys.boss.SIMBIG_CUTS["CMASS"]
 # + _in_sgc_footprint); used to derive the survey n(z)/FKP profile from the data.
@@ -189,6 +191,32 @@ def load_angular_completeness(
                                veto_thresh=float(veto_thresh))
 
 
+@dataclass
+class MangleCompleteness:
+    """Exact mangle polygon mask + completeness (`value_at`/`inside` interface matching
+    :class:`AngularCompleteness`). ``value_at`` returns the polygon weight (the per-point angular
+    completeness) and 0 outside the footprint — the EXACT mask the data uses, not a healpix raster."""
+    mng: object
+    veto_thresh: float = 0.0
+
+    def value_at(self, ra, dec):
+        return np.asarray(self.mng.weight(np.asarray(ra, np.float64), np.asarray(dec, np.float64)),
+                          np.float64)
+
+    def inside(self, ra, dec):
+        return self.value_at(ra, dec) > self.veto_thresh
+
+
+def load_mangle_completeness(ply: str = DEFAULT_MASK_PLY, *, veto_thresh: float = 0.0):
+    """Load the exact CMASS-South mangle mask via pymangle. Returns a :class:`MangleCompleteness`,
+    or ``None`` if pymangle is unavailable/broken (caller falls back to the healpix map)."""
+    try:
+        import pymangle
+        return MangleCompleteness(pymangle.Mangle(str(ply)), float(veto_thresh))
+    except Exception:
+        return None
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Main API: add the observational columns to a mock's (ra, dec, z)
 # ──────────────────────────────────────────────────────────────────────
@@ -210,10 +238,10 @@ def add_observational_columns(
 
     Steps (all using the SAME conventions as the real data):
 
-      1. **veto/mask**: drop points where the analytic angular completeness is
+      1. **veto/mask**: drop points where the angular completeness is
          ≤ ``veto_thresh`` (i.e. outside the footprint / inside a veto hole),
-         when ``apply_mask`` (default).  Uses the healpix completeness map
-         (pymangle is unavailable under NumPy 2.x here).
+         when ``apply_mask`` (default).  Uses the EXACT mangle mask via pymangle
+         when available, else the healpix completeness map.
       2. ``WEIGHT_FKP = 1 / (1 + n(z)·P0)`` with ``n(z)`` the SURVEY radial
          density learned from the data (so the mock's FKP weights match the
          data's by construction).
@@ -234,8 +262,9 @@ def add_observational_columns(
     if selection is None:
         selection = survey_selection_from_data(data_fits, P0=P0)
     if completeness is None:
-        completeness = load_angular_completeness(
-            nside, selection_npz=selection_npz, veto_thresh=veto_thresh)
+        # prefer the EXACT mangle mask; fall back to the healpix completeness map if pymangle absent
+        completeness = load_mangle_completeness(veto_thresh=veto_thresh) or \
+            load_angular_completeness(nside, selection_npz=selection_npz, veto_thresh=veto_thresh)
 
     n_total = len(ra)
     compl = completeness.value_at(ra, dec)
