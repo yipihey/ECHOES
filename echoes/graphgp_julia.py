@@ -122,12 +122,14 @@ def run_graphgp(points, n0, k, cov_bins, cov_vals, *, ops=("generate",), xi=None
         # reuse a prebuilt graph NPZ (amortise the build across calls), append xi/values
         d = dict(np.load(_graph_npz))
         np.savez(in_npz, **d)
-    # append xi / values to the graph NPZ
+    # append xi / values to the graph NPZ, in the RUN dtype (f32 halves the on-disk + RAM footprint
+    # of a large (n_cand, n_samples) white-noise batch; the Julia driver reads them as T anyway).
+    _xdt = np.float32 if dtype == "f32" else np.float64
     base = dict(np.load(in_npz))
     if xi is not None:
-        base["xi"] = np.asarray(xi, np.float64)
+        base["xi"] = np.asarray(xi, _xdt)
     if values is not None:
-        base["values"] = np.asarray(values, np.float64)
+        base["values"] = np.asarray(values, _xdt)
     np.savez(in_npz, **base)
 
     env = dict(os.environ)
