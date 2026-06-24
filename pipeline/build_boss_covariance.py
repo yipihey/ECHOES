@@ -206,6 +206,8 @@ def main():
     ap.add_argument("--use-mock-weights", action="store_true",
                     help="apply FKP(z) weights to mock galaxies too (default: unit data weights, "
                          "matching the unweighted Poisson mock; randoms always FKP-weighted)")
+    ap.add_argument("--no-mask", action="store_true",
+                    help="skip the exact mangle footprint mask (default: apply it to galaxies+randoms)")
     # binning
     ap.add_argument("--rp-min", type=float, default=0.5)
     ap.add_argument("--rp-max", type=float, default=40.0)
@@ -264,6 +266,17 @@ def main():
         sel_map=cat.sel_map, n_random=n_rand_clust, z_data=np.asarray(cat.z_data),
         nside=cat.nside, rng=rng)
     w_r = fkp_for(z_r, cat.z_data, cat.w_fkp_data)
+    # Exact mangle footprint mask (the observational layer, #2) applied consistently to randoms +
+    # galaxies. The angular completeness is NOT applied as a weight: both galaxies and randoms are
+    # drawn from sel_map (∝ completeness), so it cancels in Landy-Szalay -- re-weighting double-counts.
+    from echoes.boss_mock_columns import load_mangle_completeness
+    mask = None if args.no_mask else load_mangle_completeness()
+    if mask is not None:
+        kr = mask.inside(ra_r, dec_r)
+        print(f"[cov] exact mangle mask: randoms kept {kr.sum():,}/{len(kr):,} ({kr.mean():.4f})", flush=True)
+        ra_r, dec_r, z_r, w_r = ra_r[kr], dec_r[kr], z_r[kr], w_r[kr]
+    elif not args.no_mask:
+        print("[cov] WARNING: pymangle unavailable -- no mangle mask applied (run pipeline/rebuild_pymangle.sh)", flush=True)
     cz_r = cz_of_z(z_r, cat.fid_cosmo)
     rr_cache = None
     if clm.has_corrfunc():
@@ -310,6 +323,9 @@ def main():
     for i, c in enumerate(cats):
         ra_d = np.asarray(c["ra"], np.float64); dec_d = np.asarray(c["dec"], np.float64)
         z_d = np.asarray(c["z"], np.float64)
+        if mask is not None:                              # same exact footprint as the randoms
+            kd = mask.inside(ra_d, dec_d)
+            ra_d, dec_d, z_d = ra_d[kd], dec_d[kd], z_d[kd]
         w_d = fkp_for(z_d, cat.z_data, cat.w_fkp_data) if args.use_mock_weights \
             else np.ones(len(ra_d))
         wp, xi0, xi2 = measure_realization(ra_d, dec_d, z_d, w_d, ra_r, dec_r, cz_r, w_r,
