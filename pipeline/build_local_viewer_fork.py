@@ -124,6 +124,10 @@ def main():
     ap.add_argument("--veusz", default=None,
                     help="path (relative to the viewer HTML) to a .vsz figure to embed as a "
                          "collapsible browser-editable overlay (e.g. figs/local_completion.vsz)")
+    ap.add_argument("--vr", dest="vr", action="store_true", default=True,
+                    help="add WebXR Enter VR / Enter AR buttons (default on; a no-op on non-WebXR "
+                         "browsers — needs the fork on PYTHONPATH)")
+    ap.add_argument("--no-vr", dest="vr", action="store_false", help="disable the WebXR buttons")
     ap.add_argument("--out", default="docs/local_viewer_fork.html")
     args = ap.parse_args()
     import k3d
@@ -207,6 +211,13 @@ def main():
             "document.body.appendChild(p);"
             "document.getElementById('vzx').onclick=function(){p.style.display='none';};"
             "})();")
+
+    # WebXR (immersive VR + AR passthrough): step inside the galaxy field on Quest / Vision Pro.
+    # One line — the fork's enableWebXR feature-detects and only adds buttons where supported.
+    if args.vr:
+        add_js += ("K3DInstance.enableWebXR("
+                   + json.dumps({"sizeScale": args.size_scale, "modes": ["vr", "ar"]},
+                                separators=(",", ":")) + ");\n")
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w") as f:
