@@ -44,7 +44,7 @@ unknown redshifts are sampled from a data-driven posterior combining a
 color-space $k$-nearest-neighbor photo-$z$, an empirical close-pair prior, and a
 local-density line-of-sight prior.  Smooth imaging-systematic weights are
 represented by local analog galaxies rather than by per-object completeness
-weights.  The released posterior is compact: one 3.14 MB file stores the fixed
+weights.  The released posterior is compact: one $\sim$4~MB file stores the fixed
 observed catalog and the inverse CDF for each restored target, and a
 numpy-only sampler generates reproducible complete catalogs from integer seeds.
 For seed 0 the sample contains 119,885 equal-weight galaxies, of which 109,636
@@ -334,7 +334,7 @@ $\hat{\bf n}_i$ and colors ${\bf x}_i$, redshifts are sampled from
 where $\widehat{p}_{\rm col}$ is the color-space photo-$z$ density, $q_i$ is an
 empirical close-pair prior for collisions and unity for redshift failures, and
 $\widehat{\lambda}_{\rm loc}$ is the observed local line-of-sight density.  The
-local density is estimated from the $K=150$ nearest observed spectroscopic
+local density is estimated from the $K$ nearest observed spectroscopic
 galaxies in angular unit-vector space:
 \begin{equation}
   \widehat{\lambda}_{\rm loc}(\hat{\bf n}_i,z) =
@@ -342,13 +342,23 @@ galaxies in angular unit-vector space:
   \exp\left[-\frac{(z-z_j)^2}{2\sigma_f^2}\right],
   \qquad \sigma_f=0.004 .
 \end{equation}
+The neighbor count is set per missing-galaxy kind: $K=150$ for fiber collisions,
+whose redshift is additionally pinned by the close-pair prior below, and a tighter
+$K=20$ for redshift failures, where the broad $K=150$ support otherwise makes the
+per-object redshift posterior under-confident (the support, not the kernel
+bandwidth, sets the width; Section~\ref{subsec:higherorder}).
 The photo-$z$ factor is evaluated on the same 256-point redshift grid with a
 Gaussian smoothing scale $\sigma_p=0.02$ applied to the neighbor redshifts and
-their $k$NN weights.  For collided targets, $q_i(z)$ is the symmetrized
+their $k$NN weights.  For collided targets, $q_i(z)$ is built from the symmetrized
 histogram of redshift differences among observed close pairs within $62''$,
-measured directly from the data over $|\Delta z|<0.06$.  The sampled redshift is
-then jittered by a Gaussian of width $\sigma_f/2$ and clipped to the CMASS
-redshift interval.
+measured directly from the data over $|\Delta z|<0.06$.  Because the surviving
+observed close pairs are biased toward physical (small-$\Delta z$) pairs, a
+fraction ($\simeq0.30$) of this pool is replaced by the chance-projection
+background --- the $\Delta z$ of uncorrelated pairs, i.e.\ the self-convolution of
+$n(z)$ --- which broadens the prior to its calibrated width and removes a residual
+over-confidence in the collided redshifts (Section~\ref{subsec:higherorder}).  The
+sampled redshift is then jittered by a Gaussian of width $\sigma_f/2$ and clipped
+to the CMASS redshift interval.
 
 Equation (\ref{eq:localposterior}) is deliberately observational.  It does not
 assign a missing galaxy to a simulated halo or require a fiducial cosmology.
@@ -419,12 +429,16 @@ realization is only a draw from each per-object inverse CDF plus the stochastic
 imaging analogs.
 
 The release therefore stores this posterior as a single compressed file of
-3.14 MB: the fixed observed catalog, the base positions and provenance for the
+$\sim$4~MB: the fixed observed catalog, the base positions and provenance for the
 observed and restored targets, \texttt{WEIGHT\_SYSTOT}, a tabulated
 inverse-CDF redshift posterior for each of the 6{,}777 missing targets, and the
 field-correlation copula modes that give the missing redshifts their coherent
 cross-object dependence (the file schema and quantization are given in
-Appendix~\ref{app:products}).  A matching
+Appendix~\ref{app:products}).  Building this posterior is inexpensive: the
+per-object line-of-sight kernel-density estimates that dominate the cost are
+evaluated as a single histogram-and-Gaussian-convolution over all targets rather
+than an object-by-object loop, about an order of magnitude faster, so the whole
+package is rebuilt in well under a second.  A matching
 uniform-footprint random catalog contains 438{,}544 points; because CMASS-South
 is approximately 99\% complete in the angular mask, these randoms are uniform
 over the footprint to the percent level.
@@ -800,11 +814,20 @@ both populations --- the median assigned-minus-true offset is $-0.0008$ for
 failures and $+0.0001$ for collisions, with comparable scatter
 ($\sigma\simeq0.031$ versus $0.028$) and catastrophic-outlier fractions
 ($|\Delta z|>0.05$ of $10.7\%$ versus $11.2\%$) --- so the absence of a close-pair
-prior does not degrade the failures relative to collisions.  The per-object
-ensemble is mildly over-confident for both kinds (the rank histogram of the true
-redshift departs from uniform at the $\sim0.1$ Kolmogorov--Smirnov level), a
-small residual that is conservative for ensemble-mean statistics and bounded by
-the statistic-level calibration below.
+prior does not degrade the failures relative to collisions.  The per-object rank
+histogram of the true redshift, however, miscalibrates in \emph{opposite}
+directions for the two kinds: collisions are over-confident, because the bare
+close-pair prior built from surviving observed pairs is too sharp and piles the
+true redshift in the tails; failures are under-confident, because the broad
+$K=150$ local-density support over-disperses their posterior.  The two
+refinements introduced in Section~\ref{subsec:localdensity} --- mixing a
+$\simeq30\%$ chance-projection background into the close-pair prior, and using the
+tighter $K=20$ support for failures --- treat the two arms separately and bring
+each close to uniform, moving the Kolmogorov--Smirnov statistic from $\sim0.10$ to
+$\sim0.06$ for collisions and from $\sim0.20$ to $\sim0.14$ for failures, with a
+residual faint-end photo-$z$ bias remaining for the failures.  The remaining
+non-uniformity is small and conservative for ensemble-mean statistics, and is
+bounded by the statistic-level calibration below.
 
 \begin{figure}
 \centering
@@ -1096,11 +1119,14 @@ features $(g-r,r-i,i-z,i)$.
 no-spectrum targets to \texttt{WEIGHT\_CP} hosts within $62''$ and
 \texttt{ZWARNING}$\ne0$ targets to \texttt{WEIGHT\_NOZ} hosts within $15'$.
 \item Measure the observed close-pair $\Delta z$ pool from pairs of observed
-galaxies within $62''$ and symmetrize it.
-\item For each missing target, find the $K=150$ angular nearest observed
-spectroscopic galaxies.  On a 256-point redshift grid, form the product of the
-local field KDE with $\sigma_f=0.004$, the photo-$z$ KDE with
-$\sigma_p=0.02$, and, for collisions, the close-pair prior.
+galaxies within $62''$, symmetrize it, and replace a fraction $\simeq0.30$ of it
+with the chance-projection background ($\Delta z$ of uncorrelated pairs).
+\item For each missing target, find the angular nearest observed spectroscopic
+galaxies ($K=150$ for collisions, $K=20$ for redshift failures).  On a 256-point
+redshift grid, form the product of the local field KDE with $\sigma_f=0.004$, the
+photo-$z$ KDE with $\sigma_p=0.02$, and, for collisions, the close-pair prior.
+The two kernel-density estimates are evaluated for all targets at once as a
+histogram followed by a Gaussian convolution.
 \item Store each normalized posterior as a 65-level inverse CDF.  Quantize the
 observed redshifts and inverse-CDF values to \texttt{uint16}; store positions
 as \texttt{float32}, \texttt{WEIGHT\_SYSTOT} as \texttt{float16}, and provenance
@@ -1145,9 +1171,14 @@ used for the comparisons in Section \ref{subsec:graphgp_results}.
 The release in the repository's \texttt{data\_release/} directory contains the compact
 posterior \texttt{cmass\_south\_posterior.npz} (the fixed observed catalog plus
 an inverse-CDF redshift posterior for each restored target, tabulated at 65
-quantile levels and quantized to \texttt{uint16}, plus the field-correlation copula modes, for a 3.14 MB total), the
+quantile levels and quantized to \texttt{uint16}, plus the field-correlation copula modes,
+$\sim$4.3~MB), a generative-engine variant
+\texttt{cmass\_south\_posterior\_generative.npz} ($\sim$4.2~MB; identical schema and
+sampler, with the redshift posteriors built from the complementary field-level
+engine of Section~\ref{sec:graphgp} in place of the local-density estimate), the
 matching uniform-footprint randoms \texttt{cmass\_south\_randoms.npz}, and a
-NumPy-only sampler \texttt{draw\_samples.py}.  A completed catalog is drawn from an integer
+NumPy-only sampler \texttt{draw\_samples.py}.  A \texttt{SHA256SUMS} manifest accompanies
+the bundle.  A completed catalog is drawn from an integer
 seed with
 \begin{verbatim}
 from draw_samples import load_package, draw

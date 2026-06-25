@@ -1,6 +1,8 @@
 # ECHOES — Local Neighborhood (true-3D) data line
 
-**Branch:** `data/local-neighborhood`. **Status:** scaffolding (CF4 bootstrapped; design below).
+**Branch:** `data/local-neighborhood`. **Status:** P0–P3 shipped (real-3D catalog + true-3D
+completion + viewer; demonstrator = 3 realizations); P4 (full 80-member Manticore ensemble +
+validation) in progress.
 
 A second ECHOES data line that leaves redshift space behind. For the local universe
 (out to a few hundred Mpc) we have **real distances** (peculiar-velocity–corrected) and

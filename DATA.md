@@ -63,7 +63,7 @@ pkg = load_package("data_release/cmass_south_posterior.npz")
 cat = draw(pkg, seed=0)        # dict(ra, dec, z, prov, N)
 ```
 `echoes-draw` uses the in-repo posterior when run from a clone. From a package
-install it downloads the same ~3 MB file once into `~/.cache/echoes` (or
+install it downloads the same ~4 MB file once into `~/.cache/echoes` (or
 `$ECHOES_DATA`) and verifies the SHA256 hash. FITS output is available with
 `pip install "echoes[fits] @ git+https://github.com/yipihey/ECHOES.git"` and
 `--out catalog.fits`.
