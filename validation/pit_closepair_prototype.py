@@ -63,9 +63,28 @@ def cz(z, cosmo):
     return np.asarray(comoving_distance(np.asarray(z, np.float64), cosmo))
 
 
+def run_one_seed(cat, pz, seed, fracs, wp_check, wp_ctx=None):
+    ra = np.asarray(cat.ra_data); dec = np.asarray(cat.dec_data); z = np.asarray(cat.z_data)
+    obs, tg, kept, true_z = apply_survey_systematics(
+        ra, dec, z, cat.colors_data, cat.mags_data, np.asarray(cat.w_sys_data),
+        coll_frac=0.6, zfail_frac=0.014, zfail_faint_bias=1.5, seed=seed)
+    true_z = np.asarray(true_z); coll = np.asarray(tg.miss_kind) == "collided"
+    dz_base = measure_close_pair_dz(obs, 62 / 3600.)
+    bg = bg_dz(np.asarray(obs.z_data), len(dz_base), np.random.default_rng(seed + 5))
+    ks = {}
+    for f in fracs:
+        dz_f = dz_base if f == 0 else mix_pool(dz_base, bg, f, np.random.default_rng(seed + 11))
+        pit = object_pit(build_package(obs, tg, pz, dz_pool=dz_f), true_z)
+        ks[f] = pit_uniformity(pit[coll])["ks"]
+    f_opt = min(ks, key=ks.get)
+    return ks, f_opt, int(coll.sum())
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--seeds", type=int, nargs="+", default=None,
+                   help="if given, run the f-sweep for each seed and report optimal-f stability")
     p.add_argument("--fracs", type=float, nargs="+", default=[0.0, 0.15, 0.3, 0.45, 0.6])
     p.add_argument("--wp-check", action="store_true", help="also measure wp(rp) recovery vs truth")
     args = p.parse_args()
@@ -75,6 +94,20 @@ def main():
     feat = photoz_features(cat.colors_data, cat.mags_data)
     good = np.isfinite(feat).all(1) & (np.asarray(cat.imatch_data) == 1)
     pz = PhotoZKNN(k=100).fit(feat[good], z[good])
+
+    if args.seeds is not None:
+        print(f"=== collided-PIT KS vs f, across seeds (optimal-f stability) ===")
+        print(f"  {'seed':>4} {'N_coll':>7} " + " ".join(f"f={f:<5.2f}" for f in args.fracs) + "  f_opt")
+        fopts = []
+        for sd in args.seeds:
+            ks, f_opt, ncoll = run_one_seed(cat, pz, sd, args.fracs, False)
+            fopts.append(f_opt)
+            print(f"  {sd:>4} {ncoll:>7,} " + " ".join(f"{ks[f]:>7.3f}" for f in args.fracs)
+                  + f"   {f_opt:.2f}", flush=True)
+        print(f"\n  optimal f: {fopts}  (mean {np.mean(fopts):.2f} ± {np.std(fopts):.2f})")
+        print("  STABLE if f_opt clusters tightly — then ship that f; else the knob is seed-sensitive.")
+        return
+
     obs, tg, kept, true_z = apply_survey_systematics(
         ra, dec, z, cat.colors_data, cat.mags_data, np.asarray(cat.w_sys_data),
         coll_frac=0.6, zfail_frac=0.014, zfail_faint_bias=1.5, seed=args.seed)
