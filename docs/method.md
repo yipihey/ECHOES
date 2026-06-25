@@ -111,14 +111,14 @@ The two agree to the percent level; neither dominates. The KNN engine is sharper
 small scales, graphGP is smoother and slightly closer to the weighted reference on
 large scales.
 
-## 7. Why the release is ~3 MB: relative samples
+## 7. Why the release is ~4 MB: relative samples
 
 Every realization shares the *same* observed galaxies and the *same* missing-galaxy
 positions — only the missing redshifts vary, and each missing galaxy's redshift
 posterior is fixed once computed. So ECHOES stores the observed catalog **once** plus
 a compact inverse-CDF of each missing galaxy's redshift posterior. A "sample" is then
 just a seed: draw one correlated uniform per missing galaxy and invert its CDF. The
-whole posterior is ~3 MB (the extra ~1 MB over the bare inverse-CDFs is the
+whole posterior is ~4 MB (the extra ~1 MB over the bare inverse-CDFs is the
 field-correlation **copula** modes — see below), you can draw unlimited realizations
 locally, and a reproducible ensemble is simply a list of integer seeds.
 

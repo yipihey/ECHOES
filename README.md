@@ -59,7 +59,7 @@ pkg = load_package("data_release/cmass_south_posterior.npz")
 cat = draw(pkg, seed=0)        # dict(ra, dec, z, prov, N) — equal-weight, cosmology-free
 ```
 `echoes-draw` uses `data_release/cmass_south_posterior.npz` when run from a
-repository clone. From a package install it downloads the same ~3 MB posterior
+repository clone. From a package install it downloads the same ~4 MB posterior
 once into `~/.cache/echoes` (or `$ECHOES_DATA`) and verifies its SHA256 hash.
 Use `--out catalog.fits` after installing `echoes[fits]` if you prefer FITS.
 
@@ -104,7 +104,7 @@ copula=False)` recovers the legacy independent draw bit-for-bit.
 
 ## Redshift / field engines
 - **KNN-field (default):** a fast local-density posterior along each sightline.
-  Cosmology-free, compresses to the ~3 MB released posterior (incl. copula modes). Used for the release.
+  Cosmology-free, compresses to the ~4 MB released posterior (incl. copula modes). Used for the release.
 - **graphGP (optional):** a conditional anisotropic Gaussian-process posterior over
   the density field (Matheron sampling on a sparse graph), giving correlated
   redshift draws. Install with

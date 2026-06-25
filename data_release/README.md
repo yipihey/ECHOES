@@ -7,7 +7,7 @@ failures) at their real imaging positions with a GP/local-density redshift. The
 posterior is stored compactly so you draw as many samples as you like locally.
 
 ## Files
-- `cmass_south_posterior.npz`  (4.22 MB) the posterior (observed base once +
+- `cmass_south_posterior.npz`  (4.26 MB) the posterior (observed base once +
   each missing galaxy's redshift inverse-CDF). 1 file = the whole ensemble.
 - `cmass_south_randoms.npz`     (4.63 MB) uniform-footprint randoms (RA, DEC, Z),
   438,544 points. CMASS-South is ~99% complete (COMP~0.99) so these are uniform to ~1%.
