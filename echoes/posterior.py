@@ -126,8 +126,8 @@ def _build_copula_modes(base_ra, base_dec, n_obs, invcdf, qlev, cov, *, K=128, v
 
 
 def build_package(catalog, targets, photoz, *, dz_pool=None, nq=65, ngrid=256,
-                  K=150, bw_f=0.004, bw_p=0.02, jitter=None, verbose=False,
-                  copula=False, field_ctx=None, copula_modes=128):
+                  K=150, K_zfail=20, dz_bg_frac=0.30, bw_f=0.004, bw_p=0.02,
+                  jitter=None, verbose=False, copula=False, field_ctx=None, copula_modes=128):
     """Precompute the compact posterior package (the expensive step, done once).
 
     Mirrors the ``z_mode='field'`` posterior of
@@ -153,46 +153,80 @@ def build_package(catalog, targets, photoz, *, dz_pool=None, nq=65, ngrid=256,
     if dz_pool is None:
         dz_pool = measure_close_pair_dz(catalog)
     dz_pool = np.asarray(dz_pool, np.float64)
+    # COLLIDED calibration: broaden the close-pair Δz with the chance-projection BACKGROUND (Δz of
+    # uncorrelated pairs ~ the n(z) self-convolution). The observed survivor close-pair pool is biased
+    # to physical Δz≈0, so the collided posterior z_host+Δz is too narrow → over-confident PIT.
+    # dz_bg_frac≈0.30 calibrates it (seed-stable, wp-safe; validation/pit_closepair_prototype.py).
+    if dz_bg_frac and dz_bg_frac > 0:
+        rb = np.random.default_rng(0)                    # fixed → reproducible pool
+        n = len(dz_pool)
+        bgd = z_o[rb.integers(len(z_o), size=n)] - z_o[rb.integers(len(z_o), size=n)]
+        bgd = np.concatenate([bgd, -bgd])
+        dz_pool = dz_pool.copy()
+        take = rb.random(n) < dz_bg_frac
+        dz_pool[take] = rb.choice(bgd, int(take.sum()))
     if jitter is None:
         jitter = bw_f * 0.5
 
     from scipy.spatial import cKDTree
     feat = photoz_features(targets.colors, targets.mags)
-    zk, wk = photoz.posterior(feat)
+    zk, wk = photoz.posterior(feat)                      # (M, k)
     M = len(host)
     Kq = min(K, len(z_o))
     _, nn = cKDTree(_radec_to_nhat(ra_o, dec_o)).query(
         _radec_to_nhat(np.asarray(targets.ra), np.asarray(targets.dec)), k=Kq, workers=-1)
+    nn = np.atleast_2d(nn)
     zmin, zmax = float(z_o.min()), float(z_o.max())
     zgrid = np.linspace(zmin, zmax, ngrid)
     pcl = _clpair_density(dz_pool)
     coll_i = (miss_kind == "collided") & (host >= 0)
     qlev = np.linspace(0.0, 1.0, nq)
 
+    # Z-FAIL calibration: per-miss-kind field support. The local-field term pf is a KDE over the K
+    # nearest observed redshifts (the LOS density); K=150 is too broad for z-fails → under-confident
+    # PIT. Use only the ~K_zfail nearest for z-fails (per-neighbour weight 1/0); collided keep the full
+    # K (their close-pair prior already pins z). (validation/pit_photoz_prototype.py.)
+    K_use = np.where(miss_kind == "zfail", min(int(K_zfail), Kq), Kq).astype(np.int64)   # (M,)
+    nbr_w = (np.arange(Kq)[None, :] < K_use[:, None]).astype(np.float64)                  # (M, Kq) 1/0
+    znb_all = z_o[nn]                                                                     # (M, Kq)
+    ok_all = np.isfinite(wk) & (wk > 0)                                                   # (M, k)
+
+    # pf and pp are Gaussian KDEs on zgrid. Brute force is O(M·ngrid·K) exp — the old hotspot. Instead
+    # bin each object's neighbours onto zgrid (binning error ≪ bandwidth) and convolve with the Gaussian
+    # ONCE for all objects via gaussian_filter1d — O(M·ngrid) in C, ~3–4× faster. The KDE's overall
+    # constant cancels when the CDF is normalised, so pf/pp need not match the brute-force amplitude.
+    from scipy.ndimage import gaussian_filter1d
+    dzg = (zmax - zmin) / (ngrid - 1)
+    rowsK = np.broadcast_to(np.arange(M)[:, None], (M, Kq))
+    rowsk = np.broadcast_to(np.arange(M)[:, None], wk.shape)
+
+    def _kde(z_pts, w_pts, rows, bw):
+        idx = np.clip(np.round((z_pts - zmin) / dzg), 0, ngrid - 1).astype(np.intp)
+        hist = np.zeros((M, ngrid), np.float64)
+        np.add.at(hist, (rows.ravel(), idx.ravel()), w_pts.ravel())
+        return gaussian_filter1d(hist, bw / dzg, axis=1, mode="constant", truncate=5.0)
+
+    pf = _kde(znb_all, nbr_w, rowsK, bw_f)                                                # (M, ngrid)
+    pp = _kde(np.where(ok_all, zk, zmin), np.where(ok_all, wk, 0.0), rowsk, bw_p)         # (M, ngrid)
+    pp[~ok_all.any(1)] = 1.0                                                              # no photo-z → flat
+    p = pf * pp
+    if coll_i.any():                                                                      # close-pair prior
+        p[coll_i] *= pcl(zgrid[None, :] - z_host[coll_i][:, None])
+    s = p.sum(1)
+    cdf = np.maximum.accumulate(np.cumsum(p, axis=1) / np.where(s[:, None] > 0, s[:, None], 1.0), axis=1)
+
     invcdf = np.empty((M, nq), np.float64)
-    fallback = np.zeros(M, bool)
+    fallback = s <= 0
+    zmed = float(np.median(z_o))
     for i in range(M):
-        znb = z_o[nn[i]]
-        pf = np.exp(-0.5 * ((zgrid[:, None] - znb[None, :]) / bw_f) ** 2).sum(1)
-        w = wk[i]; ok = np.isfinite(w) & (w > 0)
-        pp = ((w[ok][None, :] * np.exp(-0.5 * ((zgrid[:, None] - zk[i][ok][None, :]) / bw_p) ** 2)).sum(1)
-              if ok.any() else np.ones_like(zgrid))
-        p = pf * pp
-        if coll_i[i]:
-            p = p * pcl(zgrid - z_host[i])
-        s = p.sum()
-        if s > 0:
-            cdf = np.cumsum(p) / s
-            # make cdf strictly increasing for interp (dedupe flat tails)
-            cdf = np.maximum.accumulate(cdf)
-            u, idx = np.unique(cdf, return_index=True)
+        if not fallback[i]:
+            u, idx = np.unique(cdf[i], return_index=True)
             invcdf[i] = np.interp(qlev, u, zgrid[idx])
         else:
-            zfb = z_host[i] if np.isfinite(z_host[i]) else float(np.median(z_o))
-            invcdf[i] = zfb
-            fallback[i] = True
+            invcdf[i] = z_host[i] if np.isfinite(z_host[i]) else zmed
     if verbose:
-        print(f"[build_package] {M:,} missing posteriors, nq={nq}, fallback={int(fallback.sum())}")
+        print(f"[build_package] {M:,} missing posteriors, nq={nq}, fallback={int(fallback.sum())}, "
+              f"K_zfail={K_zfail} dz_bg_frac={dz_bg_frac}")
 
     miss_prov = np.where(fallback, PROV["zhost"],
                          np.where(miss_kind == "collided", PROV["collided"], PROV["zfail"]))
