@@ -83,8 +83,9 @@ class FillFootprint:
 
     def pix(self, ra, dec):
         import healpy as hp
-        return hp.ang2pix(self.nside, np.radians(90.0 - np.asarray(dec)),
-                          np.radians(np.asarray(ra) % 360.0))
+        # float64: healpy's ang2pix ufunc rejects float128 (e.g. pymangle.genrand output)
+        return hp.ang2pix(self.nside, np.radians(90.0 - np.asarray(dec, np.float64)),
+                          np.radians(np.asarray(ra, np.float64) % 360.0))
 
     def nbar_z(self, z):
         """Mean n(z) profile (normalised to mean 1) interpolated at ``z``."""
@@ -217,7 +218,8 @@ def _geometry_mask(nside, *, mangle_npy=None, mangle_ply=None):
             m = pymangle.Mangle(mangle_ply)
             ra, dec = m.genrand(3_000_000)
             w = m.weight(ra, dec); keep = w > 0
-            ra, dec = ra[keep], dec[keep]
+            # pymangle.genrand returns float128; healpy's ang2pix ufunc only supports float64
+            ra, dec = np.asarray(ra[keep], np.float64), np.asarray(dec[keep], np.float64)
         except Exception:
             return None
     if ra is None:
