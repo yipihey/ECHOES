@@ -125,6 +125,38 @@ def _build_copula_modes(base_ra, base_dec, n_obs, invcdf, qlev, cov, *, K=128, v
     return B.astype(np.float32), d.astype(np.float32)
 
 
+def _grid_kde(z_pts, w_pts, *, zmin, dzg, ngrid, bw):
+    """Per-row Gaussian KDE of weighted points ``z_pts`` (M,k) onto a length-``ngrid`` z-grid, via
+    histogram-onto-grid + ``gaussian_filter1d`` — the KDE IS a Gaussian convolution, so this is one
+    vectorised C call for all M objects instead of O(M·ngrid·k) brute-force exp (~10× faster). The
+    bin snap (≤½ cell ≪ ``bw``) and the unnormalised KDE constant both wash out when the downstream
+    CDF is normalised. Returns ``(M, ngrid)``."""
+    from scipy.ndimage import gaussian_filter1d
+    z_pts = np.asarray(z_pts); M = z_pts.shape[0]
+    idx = np.clip(np.round((z_pts - zmin) / dzg), 0, ngrid - 1).astype(np.intp)
+    rows = np.broadcast_to(np.arange(M)[:, None], z_pts.shape)
+    hist = np.zeros((M, ngrid), np.float64)
+    np.add.at(hist, (rows.ravel(), idx.ravel()), np.asarray(w_pts, np.float64).ravel())
+    return gaussian_filter1d(hist, bw / dzg, axis=1, mode="constant", truncate=5.0)
+
+
+def _broaden_close_pair_dz(dz_pool, z_o, frac):
+    """Mix a fraction ``frac`` of the close-pair Δz pool with the chance-projection BACKGROUND (Δz of
+    uncorrelated pairs ~ the n(z) self-convolution). The observed survivor close-pair pool is biased to
+    physical Δz≈0, so the collided posterior z_host+Δz is too narrow → over-confident PIT; frac≈0.30
+    calibrates it (seed-stable, wp-safe; validation/pit_closepair_prototype.py). Fixed RNG → reproducible."""
+    if not frac or frac <= 0:
+        return dz_pool
+    rb = np.random.default_rng(0)
+    n = len(dz_pool)
+    bgd = z_o[rb.integers(len(z_o), size=n)] - z_o[rb.integers(len(z_o), size=n)]
+    bgd = np.concatenate([bgd, -bgd])
+    out = np.asarray(dz_pool, np.float64).copy()
+    take = rb.random(n) < frac
+    out[take] = rb.choice(bgd, int(take.sum()))
+    return out
+
+
 def build_package(catalog, targets, photoz, *, dz_pool=None, nq=65, ngrid=256,
                   K=150, K_zfail=20, dz_bg_frac=0.30, bw_f=0.004, bw_p=0.02,
                   jitter=None, verbose=False, copula=False, field_ctx=None, copula_modes=128):
@@ -152,19 +184,7 @@ def build_package(catalog, targets, photoz, *, dz_pool=None, nq=65, ngrid=256,
     miss_kind = np.asarray(targets.miss_kind)
     if dz_pool is None:
         dz_pool = measure_close_pair_dz(catalog)
-    dz_pool = np.asarray(dz_pool, np.float64)
-    # COLLIDED calibration: broaden the close-pair Δz with the chance-projection BACKGROUND (Δz of
-    # uncorrelated pairs ~ the n(z) self-convolution). The observed survivor close-pair pool is biased
-    # to physical Δz≈0, so the collided posterior z_host+Δz is too narrow → over-confident PIT.
-    # dz_bg_frac≈0.30 calibrates it (seed-stable, wp-safe; validation/pit_closepair_prototype.py).
-    if dz_bg_frac and dz_bg_frac > 0:
-        rb = np.random.default_rng(0)                    # fixed → reproducible pool
-        n = len(dz_pool)
-        bgd = z_o[rb.integers(len(z_o), size=n)] - z_o[rb.integers(len(z_o), size=n)]
-        bgd = np.concatenate([bgd, -bgd])
-        dz_pool = dz_pool.copy()
-        take = rb.random(n) < dz_bg_frac
-        dz_pool[take] = rb.choice(bgd, int(take.sum()))
+    dz_pool = _broaden_close_pair_dz(np.asarray(dz_pool, np.float64), z_o, dz_bg_frac)  # COLLIDED fix
     if jitter is None:
         jitter = bw_f * 0.5
 
@@ -191,23 +211,12 @@ def build_package(catalog, targets, photoz, *, dz_pool=None, nq=65, ngrid=256,
     znb_all = z_o[nn]                                                                     # (M, Kq)
     ok_all = np.isfinite(wk) & (wk > 0)                                                   # (M, k)
 
-    # pf and pp are Gaussian KDEs on zgrid. Brute force is O(M·ngrid·K) exp — the old hotspot. Instead
-    # bin each object's neighbours onto zgrid (binning error ≪ bandwidth) and convolve with the Gaussian
-    # ONCE for all objects via gaussian_filter1d — O(M·ngrid) in C, ~3–4× faster. The KDE's overall
-    # constant cancels when the CDF is normalised, so pf/pp need not match the brute-force amplitude.
-    from scipy.ndimage import gaussian_filter1d
+    # pf (local-field) and pp (photo-z) are Gaussian KDEs on zgrid — computed by _grid_kde (histogram +
+    # gaussian_filter1d, ~10× over brute-force exp; see its docstring).
     dzg = (zmax - zmin) / (ngrid - 1)
-    rowsK = np.broadcast_to(np.arange(M)[:, None], (M, Kq))
-    rowsk = np.broadcast_to(np.arange(M)[:, None], wk.shape)
-
-    def _kde(z_pts, w_pts, rows, bw):
-        idx = np.clip(np.round((z_pts - zmin) / dzg), 0, ngrid - 1).astype(np.intp)
-        hist = np.zeros((M, ngrid), np.float64)
-        np.add.at(hist, (rows.ravel(), idx.ravel()), w_pts.ravel())
-        return gaussian_filter1d(hist, bw / dzg, axis=1, mode="constant", truncate=5.0)
-
-    pf = _kde(znb_all, nbr_w, rowsK, bw_f)                                                # (M, ngrid)
-    pp = _kde(np.where(ok_all, zk, zmin), np.where(ok_all, wk, 0.0), rowsk, bw_p)         # (M, ngrid)
+    pf = _grid_kde(znb_all, nbr_w, zmin=zmin, dzg=dzg, ngrid=ngrid, bw=bw_f)               # (M, ngrid)
+    pp = _grid_kde(np.where(ok_all, zk, zmin), np.where(ok_all, wk, 0.0),
+                   zmin=zmin, dzg=dzg, ngrid=ngrid, bw=bw_p)                              # (M, ngrid)
     pp[~ok_all.any(1)] = 1.0                                                              # no photo-z → flat
     p = pf * pp
     if coll_i.any():                                                                      # close-pair prior
@@ -268,8 +277,8 @@ def _attach_copula(pkg, catalog, field_ctx, invcdf, qlev, copula_modes, verbose)
 
 
 def build_package_generative(catalog, targets, photoz, gen_model, *, dz_pool=None,
-                             nq=65, ngrid=256, bw_p=0.02, jitter=None, verbose=False,
-                             copula=False, copula_modes=128):
+                             nq=65, ngrid=256, bw_p=0.02, dz_bg_frac=0.30, jitter=None,
+                             verbose=False, copula=False, copula_modes=128):
     """Compact posterior package for the Tier-A generative engine.
 
     Identical layout to :func:`build_package` (same keys → the compact ``.npz`` and
@@ -296,7 +305,7 @@ def build_package_generative(catalog, targets, photoz, gen_model, *, dz_pool=Non
     miss_kind = np.asarray(targets.miss_kind)
     if dz_pool is None:
         dz_pool = measure_close_pair_dz(catalog)
-    dz_pool = np.asarray(dz_pool, np.float64)
+    dz_pool = _broaden_close_pair_dz(np.asarray(dz_pool, np.float64), z_o, dz_bg_frac)  # COLLIDED fix
     if jitter is None:
         jitter = 0.002
 
@@ -319,27 +328,34 @@ def build_package_generative(catalog, targets, photoz, gen_model, *, dz_pool=Non
     if tf is not None:
         opd_all = tf(opd_all)
 
+    # Vectorised (was a per-object Python loop). pf is the field × n̄(z) (already (M,ngrid)); pp is the
+    # photo-z Gaussian KDE via _grid_kde (histogram + gaussian_filter1d, ~10× over brute-force exp).
+    # NB the z-fail per-miss-kind-K fix does NOT apply here — pf is the generative FIELD, not a KNN.
+    ok_all = np.isfinite(wk) & (wk > 0)
+    dzg = (zmax - zmin) / (ngrid - 1)
+    pf = np.clip(opd_all, 0.0, None) * nbar_z[None, :]                                    # (M, ngrid)
+    pp = _grid_kde(np.where(ok_all, zk, zmin), np.where(ok_all, wk, 0.0),
+                   zmin=zmin, dzg=dzg, ngrid=ngrid, bw=bw_p)                              # (M, ngrid)
+    pp[~ok_all.any(1)] = 1.0
+    p = pf * pp
+    if coll_i.any():
+        p[coll_i] *= pcl(zgrid[None, :] - z_host[coll_i][:, None])
+    s = p.sum(1)
+    cdf = np.maximum.accumulate(np.cumsum(p, axis=1) / np.where(s[:, None] > 0, s[:, None], 1.0), axis=1)
+
     invcdf = np.empty((M, nq), np.float64)
-    fallback = np.zeros(M, bool)
+    fallback = s <= 0
+    zmed = float(np.median(z_o))
     for i in range(M):
-        pf = np.clip(opd_all[i], 0.0, None) * nbar_z
-        w = wk[i]; ok = np.isfinite(w) & (w > 0)
-        pp = ((w[ok][None, :] * np.exp(-0.5 * ((zgrid[:, None] - zk[i][ok][None, :]) / bw_p) ** 2)).sum(1)
-              if ok.any() else np.ones_like(zgrid))
-        p = pf * pp
-        if coll_i[i]:
-            p = p * pcl(zgrid - z_host[i])
-        s = p.sum()
-        if s > 0:
-            cdf = np.maximum.accumulate(np.cumsum(p) / s)
-            u, idx = np.unique(cdf, return_index=True)
+        if not fallback[i]:
+            u, idx = np.unique(cdf[i], return_index=True)
             invcdf[i] = np.interp(qlev, u, zgrid[idx])
         else:
-            invcdf[i] = z_host[i] if np.isfinite(z_host[i]) else float(np.median(z_o))
-            fallback[i] = True
+            invcdf[i] = z_host[i] if np.isfinite(z_host[i]) else zmed
     if verbose:
         print(f"[build_package_generative] {M:,} posteriors, nq={nq}, "
-              f"transform={gen_model.transform.kind}, fallback={int(fallback.sum())}")
+              f"transform={gen_model.transform.kind}, fallback={int(fallback.sum())}, "
+              f"dz_bg_frac={dz_bg_frac}")
 
     miss_prov = np.where(fallback, PROV["zhost"],
                          np.where(miss_kind == "collided", PROV["collided"], PROV["zfail"]))
