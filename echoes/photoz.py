@@ -36,6 +36,11 @@ def photoz_features(colors, mags):
     return np.column_stack([colors[:, 1], colors[:, 2], colors[:, 3], mags[:, 3]])
 
 
+# Explicit alias for dataset registration (``DatasetSpec.photoz_features``) — makes
+# the CMASS-specific u-band drop legible at the registration site vs the generic name.
+boss_photoz_features = photoz_features
+
+
 class PhotoZKNN:
     """k-NN colour→redshift posterior sampler."""
 

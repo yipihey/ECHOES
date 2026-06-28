@@ -10,7 +10,7 @@ Gaussian to that PDF, so applying ``T`` to the GraphGP draw reshapes the margina
 to match the data while **leaving the rank ordering — hence the calibrated
 posterior coverage — untouched** (a monotonic map is PIT/rank invariant).
 
-Two maps, both differentiable (``np.interp`` ↔ ``jnp.interp``):
+Two maps, both smooth/monotonic (``np.interp``):
 
 * ``empirical`` — ``T = F_data⁻¹ ∘ Φ`` (rank/histogram match). Reproduces the
   measured PDF *exactly*; the non-parametric default for the decision probe.

@@ -87,7 +87,7 @@ def _phi(x):
     return 0.5 * (1.0 + erf)
 
 
-def _build_copula_modes(base_ra, base_dec, n_obs, invcdf, qlev, cov, *, K=128, verbose=False):
+def _build_copula_modes(base_ra, base_dec, n_obs, invcdf, qlev, cov, *, K=128, max_m=40000, verbose=False):
     """Low-rank factor of the field-correlation copula over the missing galaxies.
 
     The released sampler draws ``z_i = invcdf_i(u_i)`` with IID ``u`` — a Gaussian
@@ -107,10 +107,23 @@ def _build_copula_modes(base_ra, base_dec, n_obs, invcdf, qlev, cov, *, K=128, v
     M = invcdf.shape[0]
     if M == 0 or cov is None:
         return None, None
+    # The copula needs a dense (M,M) correlation eigendecomposition — O(M²) memory, O(M³) time.
+    # Above ~40k missing objects this is infeasible (M=113k ⇒ ~100 GB + hours). Cap it: ship the IID
+    # sampler (per-object marginals/PIT unchanged; only the cross-object dependence is dropped). The
+    # scale path is a low-rank Nyström over landmark points — a follow-up; until then large-M datasets
+    # (e.g. DESI) run copula-free rather than OOM. ``max_m=None`` forces the dense path.
+    if max_m is not None and M > max_m:
+        if verbose:
+            print(f"[copula] M={M:,} > max_m={max_m:,}: dense eigh infeasible (O(M³)); shipping IID "
+                  f"(marginals/PIT unchanged). Use a Nyström low-rank copula for large M.")
+        return None, None
     ra_m = np.asarray(base_ra[n_obs:], np.float64)
     dec_m = np.asarray(base_dec[n_obs:], np.float64)
     qlev = np.asarray(qlev, np.float64)
-    z_med = np.array([np.interp(0.5, qlev, invcdf[i]) for i in range(M)])
+    # marginal-median z per object (vectorised; qlev is shared, only invcdf rows differ)
+    j = int(np.clip(np.searchsorted(qlev, 0.5), 1, len(qlev) - 1))
+    f = (0.5 - qlev[j - 1]) / max(qlev[j] - qlev[j - 1], 1e-12)
+    z_med = invcdf[:, j - 1] + (invcdf[:, j] - invcdf[:, j - 1]) * f
     X = comoving_mpc_h(z_med)[:, None] * _radec_to_nhat(ra_m, dec_m)          # (M,3) Mpc/h
     C = _cov_matrix(cov, X, X) / max(_k0(cov), 1e-30)                         # unit-diag correlation
     C = 0.5 * (C + C.T)
@@ -157,48 +170,117 @@ def _broaden_close_pair_dz(dz_pool, z_o, frac):
     return out
 
 
-def build_package(catalog, targets, photoz, *, dz_pool=None, nq=65, ngrid=256,
+def _has_colours(targets):
+    """True iff ``targets`` carries a non-empty colour feature array (i.e. a
+    colour-space photo-z factor is available). DESI/Quaia targets carry ``(M,0)``
+    colours → field-only / Gaussian posterior."""
+    c = getattr(targets, "colors", None)
+    return c is not None and np.asarray(c).ndim == 2 and np.asarray(c).shape[1] > 0
+
+
+_KIND_TO_PROV = {"collided": PROV["collided"], "zfail": PROV["zfail"],
+                 "coverage": PROV["coverage"], "photoz": PROV["photoz"],
+                 "selfunc": PROV["selfunc"]}
+
+
+def _anchor_pool(targets, anchor_frac):
+    """Field neighbour pool for ``resample_redshift``: the lowest-error objects.
+
+    The line-of-sight density prior must be built from the cleanest available
+    redshifts. In resample mode every neighbour z is itself a photo-z, so seeding
+    the prior from the raw photo-z point estimates would re-inject the very scatter
+    we are trying to sharpen out. Instead keep only the lowest-``anchor_frac`` by
+    ``photoz_sigma`` as "anchors" (the closest standin for a spectroscopic
+    backbone) and seed the prior from their ``photoz_mu``."""
+    sig = np.asarray(targets.photoz_sigma, np.float64)
+    mu = np.asarray(targets.photoz_mu, np.float64)
+    has_pz = np.isfinite(sig) & (sig > 0) & np.isfinite(mu)
+    idx = np.where(has_pz)[0]
+    n_anchor = max(int(round(anchor_frac * len(idx))), min(1000, len(idx)))
+    anchor = idx[np.argsort(sig[idx])[:n_anchor]]
+    return (np.asarray(targets.ra, np.float64)[anchor],
+            np.asarray(targets.dec, np.float64)[anchor], mu[anchor])
+
+
+def build_package(catalog, targets, photoz, *, mode="restore_missing", features_fn=None,
+                  anchor_frac=0.30, photoz_err_scale=1.0, dz_pool=None, nq=65, ngrid=256,
                   K=150, K_zfail=20, dz_bg_frac=0.30, bw_f=0.004, bw_p=0.02,
                   jitter=None, verbose=False, copula=False, field_ctx=None, copula_modes=128):
     """Precompute the compact posterior package (the expensive step, done once).
 
-    Mirrors the ``z_mode='field'`` posterior of
-    :func:`observed_ls.complete_catalog_photoz`: for each missing target it builds
-    p(z|n̂,colours) ∝ (1+δ_g(n̂,z))·n̄(z)·p_photoz(z) (× close-pair prior for
-    collisions) and stores its inverse-CDF on ``nq`` quantile levels. Returns a dict
-    of plain arrays (see module docstring).
+    Two completion modes share this machinery (see :mod:`echoes.surveys.registry`):
+
+    - ``mode="restore_missing"`` (BOSS, DESI): ``targets`` are the
+      spectroscopically-missing objects to restore at their imaging positions. The
+      observed catalogue is the fixed backbone; only the M missing redshifts vary.
+      Each posterior is p(z|n̂,colours) ∝ (1+δ_g(n̂,z))·n̄(z)·p_photoz(z) (× close-pair
+      prior for collisions).
+    - ``mode="resample_redshift"`` (Quaia): every object is present with a fixed
+      position but an uncertain redshift. ``targets`` is *every* object (self-hosted,
+      via :func:`echoes.surveys.targets_generic.synth_resample_targets`); there is no
+      fixed observed backbone (``n_obs=0``). Each posterior multiplies the per-object
+      photo-z Gaussian N(``photoz_mu``, ``photoz_err_scale``·``photoz_sigma``) by the
+      line-of-sight density prior, the latter seeded from the lowest-error anchors
+      (:func:`_anchor_pool`). Target rows lacking a finite ``photoz_sigma`` (e.g.
+      selection-function inpaint analogs) get a field-only posterior.
+
+    ``features_fn(colors, mags) -> features`` maps the target photometry to the
+    photo-z feature space; ``None`` uses the BOSS default (``photoz.photoz_features``,
+    drops the u-band). If ``photoz`` is ``None`` or the targets carry no colours
+    (DESI), the colour-space factor is dropped and the redshift posterior is
+    **field-only** (``pp = 1``).
 
     ``copula=True`` additionally stores the field-correlation copula modes (from
     ``field_ctx.cov``, or a context built from ``catalog`` if not supplied) so
     :func:`draw` injects the coherent cross-object dependence the IID sampler lacks —
     marginals (hence calibration) unchanged (see :func:`_build_copula_modes`)."""
-    from .photoz import photoz_features
+    if features_fn is None:
+        from .photoz import photoz_features as features_fn
+    resample = mode == "resample_redshift"
 
-    ra_o = np.asarray(catalog.ra_data, np.float64)
-    dec_o = np.asarray(catalog.dec_data, np.float64)
-    z_o = np.asarray(catalog.z_data, np.float64)
-    wsys_o = np.asarray(catalog.w_sys_data if catalog.w_sys_data is not None
-                        else np.ones(len(ra_o)), np.float64)
     host = np.asarray(targets.host_index)
-    z_host = np.where(host >= 0, z_o[np.clip(host, 0, len(z_o) - 1)], np.nan)
     miss_kind = np.asarray(targets.miss_kind)
-    if dz_pool is None:
-        dz_pool = measure_close_pair_dz(catalog)
-    dz_pool = _broaden_close_pair_dz(np.asarray(dz_pool, np.float64), z_o, dz_bg_frac)  # COLLIDED fix
+    M = len(host)
+
+    if resample:
+        # no fixed observed backbone: every object's redshift is resampled
+        ra_o = np.empty(0); dec_o = np.empty(0); z_o = np.empty(0, np.float64); wsys_o = np.empty(0)
+        z_host = np.full(M, np.nan)
+        pz_mu = np.asarray(targets.photoz_mu, np.float64)
+        pz_sig = photoz_err_scale * np.asarray(targets.photoz_sigma, np.float64)
+        has_pz = np.isfinite(pz_sig) & (pz_sig > 0) & np.isfinite(pz_mu)
+        pool_ra, pool_dec, pool_z = _anchor_pool(targets, anchor_frac)        # anchors seed the LOS prior
+    else:
+        ra_o = np.asarray(catalog.ra_data, np.float64)
+        dec_o = np.asarray(catalog.dec_data, np.float64)
+        z_o = np.asarray(catalog.z_data, np.float64)
+        wsys_o = np.asarray(catalog.w_sys_data if catalog.w_sys_data is not None
+                            else np.ones(len(ra_o)), np.float64)
+        z_host = np.where(host >= 0, z_o[np.clip(host, 0, len(z_o) - 1)], np.nan)
+        if (miss_kind == "collided").any():                                  # close-pair prior needed
+            if dz_pool is None:
+                dz_pool = measure_close_pair_dz(catalog)
+            dz_pool = _broaden_close_pair_dz(np.asarray(dz_pool, np.float64), z_o, dz_bg_frac)
+        else:                                                                # DESI coverage: no collisions
+            dz_pool = np.zeros(1)
+        pool_ra, pool_dec, pool_z = ra_o, dec_o, z_o                          # observed spec-z prior
     if jitter is None:
         jitter = bw_f * 0.5
 
     from scipy.spatial import cKDTree
-    feat = photoz_features(targets.colors, targets.mags)
-    zk, wk = photoz.posterior(feat)                      # (M, k)
-    M = len(host)
-    Kq = min(K, len(z_o))
-    _, nn = cKDTree(_radec_to_nhat(ra_o, dec_o)).query(
+    use_photoz = (not resample) and photoz is not None and _has_colours(targets)
+    if use_photoz:
+        feat = features_fn(targets.colors, targets.mags)
+        zk, wk = photoz.posterior(feat)                  # (M, k)
+    Kq = min(K, len(pool_z))
+    _, nn = cKDTree(_radec_to_nhat(pool_ra, pool_dec)).query(
         _radec_to_nhat(np.asarray(targets.ra), np.asarray(targets.dec)), k=Kq, workers=-1)
     nn = np.atleast_2d(nn)
-    zmin, zmax = float(z_o.min()), float(z_o.max())
+    if resample:
+        zmin, zmax = float(np.nanmin(pz_mu[has_pz])), float(np.nanmax(pz_mu[has_pz]))
+    else:
+        zmin, zmax = float(z_o.min()), float(z_o.max())
     zgrid = np.linspace(zmin, zmax, ngrid)
-    pcl = _clpair_density(dz_pool)
     coll_i = (miss_kind == "collided") & (host >= 0)
     qlev = np.linspace(0.0, 1.0, nq)
 
@@ -208,50 +290,63 @@ def build_package(catalog, targets, photoz, *, dz_pool=None, nq=65, ngrid=256,
     # K (their close-pair prior already pins z). (validation/pit_photoz_prototype.py.)
     K_use = np.where(miss_kind == "zfail", min(int(K_zfail), Kq), Kq).astype(np.int64)   # (M,)
     nbr_w = (np.arange(Kq)[None, :] < K_use[:, None]).astype(np.float64)                  # (M, Kq) 1/0
-    znb_all = z_o[nn]                                                                     # (M, Kq)
-    ok_all = np.isfinite(wk) & (wk > 0)                                                   # (M, k)
+    znb_all = pool_z[nn]                                                                  # (M, Kq)
 
-    # pf (local-field) and pp (photo-z) are Gaussian KDEs on zgrid — computed by _grid_kde (histogram +
+    # pf (local-field) and pp (photo-z) are Gaussian factors on zgrid — pf via _grid_kde (histogram +
     # gaussian_filter1d, ~10× over brute-force exp; see its docstring).
     dzg = (zmax - zmin) / (ngrid - 1)
     pf = _grid_kde(znb_all, nbr_w, zmin=zmin, dzg=dzg, ngrid=ngrid, bw=bw_f)               # (M, ngrid)
-    pp = _grid_kde(np.where(ok_all, zk, zmin), np.where(ok_all, wk, 0.0),
-                   zmin=zmin, dzg=dzg, ngrid=ngrid, bw=bw_p)                              # (M, ngrid)
-    pp[~ok_all.any(1)] = 1.0                                                              # no photo-z → flat
+    if resample:
+        # closed-form per-object Gaussian photo-z factor; selfunc inpaint rows (no σ) → flat field-only
+        pp = np.ones((M, ngrid), np.float64)
+        pp[has_pz] = np.exp(-0.5 * ((zgrid[None, :] - pz_mu[has_pz][:, None])
+                                    / pz_sig[has_pz][:, None]) ** 2)
+    elif use_photoz:
+        ok_all = np.isfinite(wk) & (wk > 0)                                              # (M, k)
+        pp = _grid_kde(np.where(ok_all, zk, zmin), np.where(ok_all, wk, 0.0),
+                       zmin=zmin, dzg=dzg, ngrid=ngrid, bw=bw_p)                          # (M, ngrid)
+        pp[~ok_all.any(1)] = 1.0                                                          # no photo-z → flat
+    else:                                                                                # field-only (DESI)
+        pp = np.ones((M, ngrid), np.float64)
     p = pf * pp
     if coll_i.any():                                                                      # close-pair prior
+        pcl = _clpair_density(dz_pool)
         p[coll_i] *= pcl(zgrid[None, :] - z_host[coll_i][:, None])
     s = p.sum(1)
     cdf = np.maximum.accumulate(np.cumsum(p, axis=1) / np.where(s[:, None] > 0, s[:, None], 1.0), axis=1)
 
     invcdf = np.empty((M, nq), np.float64)
     fallback = s <= 0
-    zmed = float(np.median(z_o))
+    zfb = pz_mu if resample else z_host                  # per-object fallback central z
+    zmed = float(np.median(pool_z)) if len(pool_z) else float(np.nanmedian(zfb))
     for i in range(M):
         if not fallback[i]:
             u, idx = np.unique(cdf[i], return_index=True)
             invcdf[i] = np.interp(qlev, u, zgrid[idx])
         else:
-            invcdf[i] = z_host[i] if np.isfinite(z_host[i]) else zmed
+            invcdf[i] = zfb[i] if np.isfinite(zfb[i]) else zmed
     if verbose:
-        print(f"[build_package] {M:,} missing posteriors, nq={nq}, fallback={int(fallback.sum())}, "
-              f"K_zfail={K_zfail} dz_bg_frac={dz_bg_frac}")
+        print(f"[build_package] mode={mode} {M:,} posteriors, nq={nq}, n_obs={len(ra_o)}, "
+              f"fallback={int(fallback.sum())}, K_zfail={K_zfail} dz_bg_frac={dz_bg_frac}")
 
-    miss_prov = np.where(fallback, PROV["zhost"],
-                         np.where(miss_kind == "collided", PROV["collided"], PROV["zfail"]))
+    miss_prov = np.array([_KIND_TO_PROV.get(str(k), PROV["zfail"]) for k in miss_kind], np.int8)
+    if not resample:
+        miss_prov[fallback] = PROV["zhost"]              # fiber-collision host-z fallback
+    miss_wsys = np.ones(M) if resample else wsys_o[np.clip(host, 0, len(z_o) - 1)]
     base_ra = np.concatenate([ra_o, np.asarray(targets.ra, np.float64)]).astype(np.float32)
     base_dec = np.concatenate([dec_o, np.asarray(targets.dec, np.float64)]).astype(np.float32)
-    base_wsys = np.concatenate([wsys_o, wsys_o[np.clip(host, 0, len(z_o) - 1)]]).astype(np.float32)
-    base_prov = np.concatenate([np.full(len(ra_o), PROV["observed"], np.int8), miss_prov.astype(np.int8)])
+    base_wsys = np.concatenate([wsys_o, miss_wsys]).astype(np.float32)
+    base_prov = np.concatenate([np.full(len(ra_o), PROV["observed"], np.int8), miss_prov])
 
     pkg = {
         "n_obs": len(ra_o), "n_miss": M, "zmin": zmin, "zmax": zmax,
         "qlev": qlev.astype(np.float32), "jitter": float(jitter),
-        "obs_z": z_o.astype(np.float32),                 # fixed observed redshifts
+        "obs_z": z_o.astype(np.float32),                 # fixed observed redshifts (empty in resample)
         "base_ra": base_ra, "base_dec": base_dec,        # obs + missing positions (fixed)
         "base_wsys": base_wsys, "base_prov": base_prov,
         "base_mags": _assemble_base_mags(catalog, targets),   # (n_base,5) real ugriz, or None
         "invcdf": invcdf.astype(np.float32),             # (M, nq) per-object quantile fn
+        "package_mode": mode,
     }
     if copula:
         _attach_copula(pkg, catalog, field_ctx, invcdf, qlev, copula_modes, verbose)
@@ -276,7 +371,7 @@ def _attach_copula(pkg, catalog, field_ctx, invcdf, qlev, copula_modes, verbose)
         pkg["cdiag"] = cd
 
 
-def build_package_generative(catalog, targets, photoz, gen_model, *, dz_pool=None,
+def build_package_generative(catalog, targets, photoz, gen_model, *, features_fn=None, dz_pool=None,
                              nq=65, ngrid=256, bw_p=0.02, dz_bg_frac=0.30, jitter=None,
                              verbose=False, copula=False, copula_modes=128):
     """Compact posterior package for the Tier-A generative engine.
@@ -292,8 +387,9 @@ def build_package_generative(catalog, targets, photoz, gen_model, *, dz_pool=Non
     the full engine samples, baked once into the inverse-CDF. Carries a
     ``package_engine='generative'`` tag (write/load preserve it, backward-compatibly).
     """
-    from .photoz import photoz_features
     from .fieldpost import los_overdensity
+    if features_fn is None:
+        from .photoz import photoz_features as features_fn
 
     ra_o = np.asarray(catalog.ra_data, np.float64)
     dec_o = np.asarray(catalog.dec_data, np.float64)
@@ -309,8 +405,10 @@ def build_package_generative(catalog, targets, photoz, gen_model, *, dz_pool=Non
     if jitter is None:
         jitter = 0.002
 
-    feat = photoz_features(targets.colors, targets.mags)
-    zk, wk = photoz.posterior(feat)
+    use_photoz = photoz is not None and _has_colours(targets)
+    if use_photoz:
+        feat = features_fn(targets.colors, targets.mags)
+        zk, wk = photoz.posterior(feat)
     M = len(host)
     zmin, zmax = float(z_o.min()), float(z_o.max())
     zgrid = np.linspace(zmin, zmax, ngrid)
@@ -331,12 +429,15 @@ def build_package_generative(catalog, targets, photoz, gen_model, *, dz_pool=Non
     # Vectorised (was a per-object Python loop). pf is the field × n̄(z) (already (M,ngrid)); pp is the
     # photo-z Gaussian KDE via _grid_kde (histogram + gaussian_filter1d, ~10× over brute-force exp).
     # NB the z-fail per-miss-kind-K fix does NOT apply here — pf is the generative FIELD, not a KNN.
-    ok_all = np.isfinite(wk) & (wk > 0)
     dzg = (zmax - zmin) / (ngrid - 1)
     pf = np.clip(opd_all, 0.0, None) * nbar_z[None, :]                                    # (M, ngrid)
-    pp = _grid_kde(np.where(ok_all, zk, zmin), np.where(ok_all, wk, 0.0),
-                   zmin=zmin, dzg=dzg, ngrid=ngrid, bw=bw_p)                              # (M, ngrid)
-    pp[~ok_all.any(1)] = 1.0
+    if use_photoz:
+        ok_all = np.isfinite(wk) & (wk > 0)
+        pp = _grid_kde(np.where(ok_all, zk, zmin), np.where(ok_all, wk, 0.0),
+                       zmin=zmin, dzg=dzg, ngrid=ngrid, bw=bw_p)                          # (M, ngrid)
+        pp[~ok_all.any(1)] = 1.0
+    else:
+        pp = np.ones((M, ngrid), np.float64)
     p = pf * pp
     if coll_i.any():
         p[coll_i] *= pcl(zgrid[None, :] - z_host[coll_i][:, None])
@@ -373,6 +474,7 @@ def build_package_generative(catalog, targets, photoz, gen_model, *, dz_pool=Non
         "base_mags": _assemble_base_mags(catalog, targets),
         "invcdf": invcdf.astype(np.float32),
         "package_engine": "generative",
+        "package_mode": "restore_missing",
     }
     if copula:
         _attach_copula(pkg, catalog, gen_model.field_ctx, invcdf, qlev, copula_modes, verbose)
@@ -408,6 +510,7 @@ def write_package(pkg, path):
         base_wsys=pkg["base_wsys"].astype(np.float16),
         base_prov=pkg["base_prov"],
         package_engine=str(pkg.get("package_engine", "field")),
+        package_mode=str(pkg.get("package_mode", "restore_missing")),
         **extra,
     )
 
@@ -423,6 +526,7 @@ def load_package(path):
         "base_ra": d["base_ra"], "base_dec": d["base_dec"],
         "base_wsys": d["base_wsys"].astype(np.float32), "base_prov": d["base_prov"],
         "package_engine": str(d["package_engine"]) if "package_engine" in d.files else "field",
+        "package_mode": str(d["package_mode"]) if "package_mode" in d.files else "restore_missing",
     }
     if "cmodes" in d.files:
         pkg["cmodes"] = d["cmodes"].astype(np.float32)

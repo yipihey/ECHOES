@@ -526,10 +526,9 @@ def _z_edges_to_comoving(
     z_edges: np.ndarray, cosmo: DistanceCosmo
 ) -> np.ndarray:
     """Comoving distances in Mpc/h corresponding to z_edges."""
-    import jax.numpy as jnp
     from .distance import comoving_distance
 
-    return np.asarray(comoving_distance(jnp.asarray(z_edges), cosmo))
+    return np.asarray(comoving_distance(np.asarray(z_edges), cosmo))
 
 
 def _fkp_kde(
@@ -712,7 +711,6 @@ def _build_lightcone_grid(
     iz_flat    : (n_z_bins * N_pix,) z_bin index
     """
     import healpy as hp
-    import jax.numpy as jnp
     from .distance import comoving_distance
 
     n_z = len(z_edges) - 1
@@ -720,7 +718,7 @@ def _build_lightcone_grid(
 
     # Comoving distance at bin centres
     z_centers = 0.5 * (z_edges[:-1] + z_edges[1:])
-    dc = np.asarray(comoving_distance(jnp.asarray(z_centers), fid_cosmo))  # (n_z,)
+    dc = np.asarray(comoving_distance(np.asarray(z_centers), fid_cosmo))  # (n_z,)
 
     # HealPIX pixel centres → unit vectors
     theta_pix, phi_pix = hp.pix2ang(nside, np.arange(N_pix))
@@ -812,287 +810,7 @@ def sample_posterior_density_field(
         ``delta_data`` (n_samples, N_D).  Call ``.to_hdf5(path)`` to save,
         ``.to_cartesian_grid()`` for Enzo/yt compatibility.
     """
-    import jax
-    import jax.numpy as jnp
-    import graphgp as gp
-
-    jax.config.update("jax_enable_x64", True)
-
-    t0 = time.time()
-
-    # ── 1. Extract positions and randoms ──────────────────────────────
-    positions, randoms, box_size = catalog.shift_to_positive()
-    N_D = len(positions)
-    w_data = getattr(catalog, "w_data", None)
-    if w_data is not None and len(w_data) == N_D:
-        w_data = np.asarray(w_data, dtype=np.float64)
-    else:
-        w_data = None
-
-    if verbose:
-        print(f"[density_field] N_data={N_D:,}  N_random={len(randoms):,}")
-
-    # ── 2. Measure ξ(r) ──────────────────────────────────────────────
-    if r_edges is None:
-        r_edges = np.logspace(np.log10(1.0), np.log10(50.0), 41)
-
-    # NB: the kernel only needs the *shape* of the clustering, so we measure
-    # ξ(r) UNWEIGHTED. Do NOT pass catalog.w_data here — for BOSS that is the
-    # FKP statistical weight (mean ≈ 0.25), and ls_corrfunc's weighted path
-    # applies the pair-weight average to DD while normalising RR/DR by
-    # unweighted counts, which drives ξ(r) negative and produces a degenerate
-    # (negative-amplitude) kernel. Completeness corrections enter via the
-    # weighted FKP-KDE numerator below, not the kernel measurement.
-    r_centers, xi_j, _, _, _ = xi_landy_szalay(
-        positions, randoms if len(randoms) > 0 else None,
-        r_edges=r_edges, box_size=None if len(randoms) > 0 else box_size,
-        nthreads=nthreads, weights=None,
-    )
-    if verbose:
-        print(f"[density_field] ξ(r) measured over {len(r_centers)} bins")
-
-    # ── 3. Tabulate kernel and build Vecchia graph ────────────────────
-    cov, (A, r0, alpha_exp) = tabulate_kernel(r_centers, xi_j)
-    cov_bins = np.asarray(cov[0])
-    cov_vals = np.asarray(cov[1])
-    prior_sigma0 = float(cov_vals[0])
-
-    pts_jax = jnp.asarray(positions, dtype=jnp.float64)
-    n0_eff = min(n0, max(2, N_D // 2))
-    k_eff = min(k, N_D - 1)
-    graph = gp.build_graph(pts_jax, n0=n0_eff, k=k_eff)
-
-    if verbose:
-        print(f"[density_field] Vecchia graph built (n0={n0_eff}, k={k_eff})")
-
-    # ── 4. Local mean density at data positions ───────────────────────
-    nbar = local_mean_density(
-        positions,
-        randoms if len(randoms) > 0 else None,
-        box_size=box_size if len(randoms) == 0 else None,
-    )
-
-    if verbose:
-        print(f"[density_field] nbar: mean={nbar.mean():.4f}  min={nbar.min():.4g}")
-        sn = np.sqrt(max(float(cov_vals[0]), 0.0)) / np.sqrt(1.0 / nbar.mean())
-        print(f"[density_field] GP S/N per galaxy: {sn:.4f}"
-              f"  ({'prior-dominated' if sn < 0.1 else 'data-informed'})")
-
-    # ── 5. Per-galaxy completeness weights for weighted FKP KDE ──────
-    # Completeness weights (w_sys × w_noz × w_cp for BOSS) upweight galaxies
-    # lost to fiber collisions, dust, redshift failures.  Do NOT include the
-    # FKP statistical weight (w_fkp) here — that is a variance weight for the
-    # power spectrum estimator, not a completeness correction.
-    w_completeness: Optional[np.ndarray] = None
-
-    # BOSS: individual components available
-    # duck-typed: any survey catalog exposing completeness-weight components
-    if getattr(catalog, "w_sys_data", None) is not None or getattr(catalog, "w_cp_data", None) is not None:
-        parts = []
-        if catalog.w_sys_data is not None:
-            parts.append(np.asarray(catalog.w_sys_data, dtype=np.float64))
-        if catalog.w_noz_data is not None:
-            parts.append(np.asarray(catalog.w_noz_data, dtype=np.float64))
-        if catalog.w_cp_data is not None:
-            parts.append(np.asarray(catalog.w_cp_data, dtype=np.float64))
-        if parts:
-            w_completeness = np.ones(N_D, dtype=np.float64)
-            for p in parts:
-                w_completeness *= p
-
-    # 2MRS / CF4 / generic: use w_data if it encodes completeness (not ~1)
-    if w_completeness is None and w_data is not None:
-        if not np.allclose(w_data, 1.0, rtol=1e-3):
-            w_completeness = w_data.copy()
-
-    # Tier-A data-driven SP RESIDUAL decontamination: fold ISD weights (1/F vs the
-    # SP templates; echoes.sp_maps.isd_decontamination) on top of WEIGHT_SYSTOT so
-    # the generated field is flat against the imaging systematics the global
-    # WEIGHT_SYSTOT missed. w_extra=None ⇒ WEIGHT_SYSTOT-only (the prior behaviour).
-    if w_extra is not None:
-        we = np.asarray(w_extra, dtype=np.float64)
-        w_completeness = (np.ones(N_D) if w_completeness is None else w_completeness) * we
-
-    # Alpha for FKP: Σw_completeness / N_random so the mean-field is correctly
-    # normalised when galaxies have unequal completeness corrections.
-    N_rand = len(randoms)
-    N_D_total = len(positions)
-    if N_rand > 0:
-        w_sum = float(w_completeness.sum()) if w_completeness is not None else float(N_D_total)
-        alpha_dr = w_sum / float(N_rand)
-    else:
-        alpha_dr = 1.0
-
-    if verbose and w_completeness is not None:
-        print(f"[density_field] Completeness weights: mean={w_completeness.mean():.3f}"
-              f"  range=[{w_completeness.min():.3f}, {w_completeness.max():.3f}]"
-              f"  α_w={alpha_dr:.6f}")
-
-    # ── 6. Build lightcone query grid ─────────────────────────────────
-    fid_cosmo = catalog.fid_cosmo
-    z_arr = catalog.z_data
-    z_min_cat = float(z_arr.min()) if len(z_arr) else 0.002
-    z_max_cat = float(z_arr.max()) if len(z_arr) else 0.05
-    # Extend slightly beyond data range
-    z_min_grid = max(0.0, z_min_cat - 0.5 * (z_max_cat - z_min_cat) / n_z_bins)
-    z_max_grid = z_max_cat + 0.5 * (z_max_cat - z_min_cat) / n_z_bins
-    z_edges = np.linspace(z_min_grid, z_max_grid, n_z_bins + 1)
-
-    xyz_vox, ipix_flat, iz_flat = _build_lightcone_grid(nside, z_edges, fid_cosmo)
-    # Shift voxel positions by the same amount as the data
-    all_xyz = np.concatenate([catalog.xyz_data,
-                               catalog.xyz_random if len(catalog.xyz_random) else
-                               catalog.xyz_data])
-    shift = -all_xyz.min(axis=0) + 100.0
-    xyz_vox_shifted = xyz_vox + shift
-
-    N_G = len(xyz_vox_shifted)
-    N_pix = 12 * nside ** 2
-
-    # Survey mask at voxel level.  The catalog sel_map may be at a finer
-    # nside than the lightcone grid; degrade it to the grid nside so that
-    # pixel indices are consistent.
-    cat_sel_map = getattr(catalog, "sel_map", None)
-    cat_nside   = getattr(catalog, "nside", nside)
-    if cat_sel_map is not None and len(cat_sel_map) == 12 * cat_nside ** 2:
-        if cat_nside != nside:
-            import healpy as hp
-            sel_map = hp.ud_grade(cat_sel_map.astype(np.float64), nside_out=nside)
-            sel_map = np.clip(sel_map, 0.0, 1.0)
-        else:
-            sel_map = cat_sel_map
-    else:
-        sel_map = np.ones(N_pix)
-    mask_vox = sel_map[ipix_flat] > 0.0   # (N_G,)
-
-    if verbose:
-        n_active = mask_vox.sum()
-        print(f"[density_field] Lightcone grid: {n_z_bins} z-shells × {N_pix} pixels "
-              f"= {N_G:,} voxels  ({n_active:,} in survey mask)")
-
-    # ── 7. Pre-compute FKP overdensity at data positions ──────────────
-    # For all sparse surveys (S/N << 1 per galaxy), the posterior mean ≈ the
-    # FKP kernel density estimate: (data KDE) / (alpha × random KDE) − 1.
-    # This has mean 0 over the survey, giving 1+δ centred at 1.
-    if N_rand > 0:
-        delta_fkp_data, coverage_data = _fkp_kde(
-            positions, positions, randoms, alpha_dr, cov_bins, cov_vals,
-            k_nni=k_nni, w_data=w_completeness,
-        )
-    else:
-        # No randoms: use the prior mean (δ = 0 everywhere)
-        delta_fkp_data = np.zeros(N_D)
-        coverage_data = np.zeros(N_D)
-
-    if N_rand > 0 and mask_vox.any():
-        query_pts_full = xyz_vox_shifted[mask_vox]
-        delta_fkp_vox, coverage_vox = _fkp_kde(
-            query_pts_full, positions, randoms, alpha_dr, cov_bins, cov_vals,
-            k_nni=k_nni, w_data=w_completeness,
-        )
-    else:
-        query_pts_full = xyz_vox_shifted[mask_vox] if mask_vox.any() else np.zeros((0, 3))
-        delta_fkp_vox = np.zeros(mask_vox.sum())
-        coverage_vox = np.zeros(mask_vox.sum())
-
-    # Normalise FKP by its mean over survey (removes systematic bias from
-    # having n_random > n_data — randoms are denser, so their k-NN kernel
-    # sum is larger, inflating the denominator and the ratio).
-    fkp_mean = float((1.0 + delta_fkp_data).mean())
-    if fkp_mean > 1e-6:
-        delta_fkp_data = (1.0 + delta_fkp_data) / fkp_mean - 1.0
-        delta_fkp_vox  = (1.0 + delta_fkp_vox)  / fkp_mean - 1.0
-
-    # Scale prior noise to match the FKP overdensity amplitude so that
-    # samples don't swamp the signal with Gaussian prior fluctuations.
-    fkp_std = float((1.0 + delta_fkp_data).std())
-    prior_scale = (fkp_std / prior_sigma0) if prior_sigma0 > 1e-10 else 1.0
-
-    if verbose:
-        w_mean = (1.0 + delta_fkp_data).mean()
-        w_std  = fkp_std
-        print(f"[density_field] FKP estimate: 1+δ mean={w_mean:.3f}  std={w_std:.3f}"
-              f"  range=[{(1+delta_fkp_data).min():.3f}, {(1+delta_fkp_data).max():.3f}]"
-              f"  prior_scale={prior_scale:.4f}")
-
-    # ── 8. Draw posterior samples ──────────────────────────────────────
-    # Each sample = FKP posterior mean + prior noise scaled by (1 − coverage).
-    # In the noise-dominated regime (S/N << 1), coverage ≈ 0 everywhere and
-    # the sample is dominated by the FKP mean + full-amplitude prior draw.
-    # Near dense data regions coverage → 1 and the posterior noise is suppressed.
-    delta_data_samples = np.empty((n_samples, N_D), dtype=np.float32)
-    delta_lc_samples = np.zeros((n_samples, n_z_bins, N_pix), dtype=np.float32)
-
-    cg_iters_total = 0
-    cg_res_last = float("nan")
-
-    for s in range(n_samples):
-        rng = np.random.default_rng(seed + s)
-
-        # 8a. Prior sample at data positions (smooth Gaussian field ~ GP prior)
-        eps = rng.standard_normal(N_D)
-        f_prior = np.asarray(
-            gp.generate(graph, cov, jnp.asarray(eps, dtype=jnp.float64))
-        )
-
-        # 8b. Posterior at data positions:
-        #   δ_post = δ_FKP + prior_scale × (1 − coverage) × f_prior
-        # prior_scale calibrates the noise amplitude to match the FKP std,
-        # so samples are centred at 1 without large clipping bias.
-        uncov_d = np.clip(1.0 - coverage_data, 0.0, 1.0)
-        delta_d = delta_fkp_data + prior_scale * uncov_d * f_prior
-        delta_data_samples[s] = np.clip(1.0 + delta_d, 0.0, None).astype(np.float32)
-
-        # 8c. Propagate to lightcone voxels
-        if mask_vox.any():
-            n_active = mask_vox.sum()
-            # Prior draw at voxel positions (interpolate from data prior sample)
-            # For efficiency, reuse the data prior sample for the noise floor
-            eps_vox = rng.standard_normal(n_active)
-            uncov_v = np.clip(1.0 - coverage_vox, 0.0, 1.0)
-            delta_v = delta_fkp_vox + prior_scale * uncov_v * eps_vox * prior_sigma0
-
-            vals_vox = np.clip(1.0 + delta_v, 0.0, None).astype(np.float32)
-            lc_flat = np.zeros(n_z_bins * N_pix, dtype=np.float32)
-            np.add.at(lc_flat, iz_flat[mask_vox] * N_pix + ipix_flat[mask_vox], vals_vox)
-            cnt = np.zeros(n_z_bins * N_pix, dtype=np.int32)
-            np.add.at(cnt, iz_flat[mask_vox] * N_pix + ipix_flat[mask_vox], 1)
-            filled = cnt > 0
-            lc_flat[filled] /= cnt[filled]
-            # Unfilled mask voxels get prior mean = 1 + noise
-            unfilled_mask_flat = np.zeros(n_z_bins * N_pix, dtype=bool)
-            unfilled_mask_flat[iz_flat[mask_vox] * N_pix + ipix_flat[mask_vox]] = True
-            bg = unfilled_mask_flat & ~filled
-            if bg.sum():
-                lc_flat[bg] = 1.0 + rng.standard_normal(bg.sum()) * prior_sigma0
-
-            delta_lc_samples[s] = lc_flat.reshape(n_z_bins, N_pix)
-
-        if verbose and (s == 0 or (s + 1) % max(1, n_samples // 5) == 0):
-            w = delta_data_samples[s]
-            print(f"[density_field] sample {s+1}/{n_samples}  "
-                  f"1+δ_data: mean={w.mean():.3f}  std={w.std():.3f}"
-                  f"  range=[{w.min():.3f}, {w.max():.3f}]")
-
-    wall = time.time() - t0
-    if verbose:
-        print(f"[density_field] Done in {wall:.1f}s")
-
-    return DensityFieldResult(
-        delta_lightcone=delta_lc_samples,
-        delta_data=delta_data_samples,
-        z_edges=z_edges,
-        nside=nside,
-        sel_map=sel_map,
-        positions_data=catalog.xyz_data,
-        nbar_data=nbar,
-        kernel_fit=(A, r0, alpha_exp),
-        r_centers=r_centers,
-        xi_j=xi_j,
-        fid_cosmo=fid_cosmo,
-        cov_bins=cov_bins,
-        cov_vals=cov_vals,
-        cg_iters_used=cg_iters_total,
-        cg_residual=cg_res_last,
-        wall_time_s=wall,
-    )
+    raise NotImplementedError(
+        "the JAX graphGP density-field engine (z_mode='graphgp') is retired; "
+        "use z_mode='field' (KNN) or 'fieldpost' (numpy GP), or "
+        "echoes.field_posterior.field_posterior_vecchia (GraphGP.jl). See git history.")

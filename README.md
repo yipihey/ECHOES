@@ -23,8 +23,21 @@ Calibration is demonstrated at the per-object redshift level (PIT) and in ensemb
 recovery of two-point *and* higher-order statistics; see [`docs/method.md`](docs/method.md)
 and the paper for the precise, conditional reading of "posterior."
 
-The first release completes **BOSS DR12 CMASS-South**. The structure is built to
-add more surveys over time.
+**Three datasets ship today**, exercising two completion modes through one
+survey-agnostic engine (a dataset is a loader + one `DatasetSpec` registration —
+see [`docs/adding_a_survey.md`](docs/adding_a_survey.md)):
+
+| dataset | mode | what is completed | products |
+|---|---|---|---|
+| **BOSS DR12 CMASS-South** | restore-missing | fiber-collision + redshift-failure galaxies restored at imaging positions with a colour photo-z × local-density redshift | `data_release/cmass_south_*.npz` |
+| **DESI DR1 QSO** | restore-missing | extremely uneven (NTILE 1–7) coverage — restored across the footprint by the completeness deficit with a field-only redshift (the uneven-coverage stress test) | `data_release/desi_qso/` |
+| **Quaia** | **resample-redshift** | every quasar's *large* photo-z error resampled from N(z, σ_z) sharpened by the local field, + selection-function footprint inpaint (the redshift-uncertainty stress test) | `data_release/quaia/` |
+
+In **restore-missing** mode the observed catalogue is the fixed backbone and only the
+restored objects vary; in **resample-redshift** mode every object's position is fixed
+(it is data) and only its uncertain redshift is re-drawn. Both share `build_package`,
+`draw`, the inverse-CDF release format, and the per-object PIT calibration. Adding the
+next dataset is a new `echoes/surveys/<name>.py` + one registration, no pipeline fork.
 
 - 📄 **Paper:** [`paper/`](paper/) (ECHOES for BOSS DR12 CMASS-South)
 - 📊 **Interactive report:** https://yipihey.github.io/ECHOES/report.html

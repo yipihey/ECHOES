@@ -1,20 +1,19 @@
-"""Part III: GP / Vecchia weights via graphgp.
+"""Part III: GP / Vecchia weights via GraphGP.jl.
 
 Sec. 4.4 of the ECHOES methods paper: build per-point density weights using the
 Vecchia approximation of a Gaussian process whose covariance kernel is the
 measured xi(r). Cost is O(N * k^3) time and O(N * k) memory, scaling
 linearly to N ~ 10^9 with the right hardware.
 
-The graphgp pipeline is::
+The pipeline is::
 
-    cov   = tabulate_kernel(r_centers, xi_j)
-    graph = gp.build_graph(positions, n0=N0, k=K)
-    delta = gp.generate(graph, cov, xi_white)
+    cov   = tabulate_kernel(r_centers, xi_j)            # numpy (cov_bins, cov_vals)
+    delta = generate_field(positions, cov, xi_white, n0=N0, k=K, backend="julia")
 
-where ``gp.generate`` computes ``L @ xi_white`` for the Vecchia Cholesky
-factor ``L`` (so ``L L^T`` approximates the prior covariance). Feeding the
-mean-centered, unit-variance KDE overdensity in as ``xi_white`` yields a
-data-aware smoothed field whose pair correlations recover the input
+where ``generate_field`` (via GraphGP.jl) computes ``L @ xi_white`` for the
+Vecchia Cholesky factor ``L`` (so ``L L^T`` approximates the prior covariance).
+Feeding the mean-centered, unit-variance KDE overdensity in as ``xi_white``
+yields a data-aware smoothed field whose pair correlations recover the input
 xi(r) -- this is the "calibrated GP sample" form discussed in
 IMPLEMENTATION_PLAN.md.
 """
@@ -87,11 +86,9 @@ def tabulate_kernel(
 
     Returns
     -------
-    (cov_bins, cov_vals) : pair of jax arrays in graphgp's expected form.
+    (cov_bins, cov_vals) : pair of numpy arrays (the tabulated kernel the Julia backend consumes).
     fit_params : ``(A, r0, alpha)`` of the fitted ``A exp(-(r/r0)^alpha)``.
     """
-    import jax.numpy as jnp
-
     r_min = r_min if r_min is not None else float(r_centers[0])
     r_max = r_max if r_max is not None else float(r_centers[-1])
     A, r0, alpha = fit_kernel(r_centers, xi_j)
@@ -99,10 +96,10 @@ def tabulate_kernel(
     cov_bins_np = np.concatenate([
         [0.0],
         np.logspace(np.log10(r_min), np.log10(r_max), n_bins - 1),
-    ])
+    ]).astype(np.float64)
     cov_vals_np = A * np.exp(-((cov_bins_np / r0) ** alpha))
     cov_vals_np[0] = A * (1.0 + jitter)
-    return (jnp.asarray(cov_bins_np), jnp.asarray(cov_vals_np)), (A, r0, alpha)
+    return (cov_bins_np, cov_vals_np.astype(np.float64)), (A, r0, alpha)
 
 
 def tabulate_kernel_direct(
@@ -145,8 +142,6 @@ def tabulate_kernel_direct(
     Returns ``((cov_bins, cov_vals), (xi0, r_knee, slope))`` where the
     third tuple is descriptive only (peak value, knee scale, tail slope).
     """
-    import jax.numpy as jnp
-
     r_centers = np.asarray(r_centers, dtype=np.float64)
     xi_j = np.asarray(xi_j, dtype=np.float64)
 
@@ -197,7 +192,7 @@ def tabulate_kernel_direct(
 
     cov_vals_np = np.concatenate([[xp_mono[0] * (1.0 + jitter)], K])
     desc = (float(xp_mono[0]), float(rp[0]), float(tail_slope))
-    return (jnp.asarray(cov_bins_np), jnp.asarray(cov_vals_np)), desc
+    return (cov_bins_np.astype(np.float64), cov_vals_np.astype(np.float64)), desc
 
 
 def compute_2pt_weights(
@@ -272,12 +267,11 @@ def compute_2pt_weights(
     diagnostics (optional)
         dict with keys ``'kernel_fit'`` (``(A, r0, alpha)``) and ``'graph'``.
     """
-    import jax
-    jax.config.update("jax_enable_x64", True)
-    import jax.numpy as jnp
-    import graphgp as gp
+    from . import graphgp_julia as ggj
 
     N = len(positions)
+    pts = np.asarray(positions, dtype=np.float64)
+    n0e, ke = min(n0, max(2, N // 2)), min(k, N - 1)
 
     # 1. Tabulate kernel (parametric, PSD by construction).
     cov, fit_params = tabulate_kernel(
@@ -286,11 +280,8 @@ def compute_2pt_weights(
         r_max=float(r_centers[-1]),
         n_bins=n_kernel_bins,
     )
-
-    # 2. Build the Vecchia graph.
-    points = jnp.asarray(positions, dtype=jnp.float64)
-    graph = gp.build_graph(points, n0=min(n0, max(2, N // 2)),
-                           k=min(k, N - 1))
+    cov_bins = np.asarray(cov[0], np.float64)
+    cov_vals = np.asarray(cov[1], np.float64)
 
     # 3. Build the white-noise input.
     if mode == "prior_sample":
@@ -313,10 +304,12 @@ def compute_2pt_weights(
         # For lightcone output use density_field.sample_posterior_density_field.
         rng = np.random.default_rng(seed)
         xi_white = rng.standard_normal(N).astype(np.float64)
-        xi_jax = jnp.asarray(xi_white)
 
-        # Prior sample at data positions
-        f_prior = np.asarray(gp.generate(graph, cov, xi_jax))
+        # Prior sample at data positions: f_prior = L xi  (GraphGP.jl bridge).
+        f_prior = np.asarray(
+            ggj.run_graphgp(pts, n0e, ke, cov_bins, cov_vals,
+                            ops=("generate",), xi=xi_white, dtype="f64")["generate"],
+            np.float64).ravel()
 
         # Observed overdensity y_i = 1/nbar_i - 1; noise N_D = diag(1/nbar_i)
         nbar_safe = np.maximum(nbar, 1e-30)
@@ -326,12 +319,19 @@ def compute_2pt_weights(
         # Residual
         residual = (y_obs - f_prior).astype(np.float64)
 
-        # Vecchia matvec: (K + N) v
+        # Vecchia matvec: (K + N) v = L (L^{-1} v) + N v, routed through the bridge
+        # (Lv = generate(generate_inv(v))).
         def _matvec(v_np):
-            v_jax = jnp.asarray(v_np)
-            Lv = jnp.asarray(gp.generate(graph, cov,
-                             jnp.asarray(gp.generate_inv(graph, cov, v_jax))))
-            return np.asarray(Lv) + noise_var * v_np
+            v_np = np.asarray(v_np, np.float64)
+            w = np.asarray(
+                ggj.run_graphgp(pts, n0e, ke, cov_bins, cov_vals,
+                                ops=("generate_inv",), values=v_np,
+                                dtype="f64")["generate_inv"], np.float64).ravel()
+            Lv = np.asarray(
+                ggj.run_graphgp(pts, n0e, ke, cov_bins, cov_vals,
+                                ops=("generate",), xi=w, dtype="f64")["generate"],
+                np.float64).ravel()
+            return Lv + noise_var * v_np
 
         # Conjugate gradient solve: (K + N) alpha = residual
         alpha = np.zeros(N, dtype=np.float64)
@@ -353,7 +353,6 @@ def compute_2pt_weights(
             rs_old = rs_new
 
         # Correction at data positions: K_D alpha (diagonal K entries)
-        cov_bins, cov_vals = cov
         k0 = float(cov_vals[0])  # K(0, 0) = kernel diagonal
         delta = f_prior + k0 * alpha  # simplified: K_DD alpha ≈ K(0)*alpha (diagonal only)
         xi_white = None  # already handled above
@@ -361,19 +360,18 @@ def compute_2pt_weights(
         raise ValueError(f"unknown mode: {mode!r}")
 
     if mode != "posterior_sample":
-        # 4. Apply the Vecchia Cholesky factor (prior_sample / data_driven). The default JAX path
-        # runs in-process; backend="julia" routes the single batched generate through GraphGP.jl
-        # (no (M,k+1,k+1) materialization → runs where JAX OOMs), same field, original order.
-        if backend == "julia":
-            from .graphgp_backend import generate_field
-            delta = generate_field(
-                np.asarray(positions), (np.asarray(cov[0]), np.asarray(cov[1])), xi_white,
-                n0=min(n0, max(2, N // 2)), k=min(k, N - 1), backend="julia", device=device)
-        else:
-            delta = np.asarray(gp.generate(graph, cov, jnp.asarray(xi_white)))
+        # 4. Apply the Vecchia Cholesky factor (prior_sample / data_driven) via the GraphGP.jl
+        # backend: one batched generate, no (M,k+1,k+1) materialization (runs where JAX OOMs),
+        # same field, original order. Only backend="julia" is supported (JAX retired).
+        if backend != "julia":
+            raise ValueError("only backend='julia' is supported (JAX retired)")
+        from .graphgp_backend import generate_field
+        delta = generate_field(
+            pts, (cov_bins, cov_vals), xi_white,
+            n0=n0e, k=ke, backend="julia", device=device)
 
     weights = 1.0 + delta
 
     if return_diagnostics:
-        return weights, {"kernel_fit": fit_params, "graph": graph}
+        return weights, {"kernel_fit": fit_params, "graph": None}
     return weights

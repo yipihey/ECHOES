@@ -20,16 +20,16 @@ and posterior *samples* follow Matheron's pathwise-conditioning rule
 which gives a draw from the exact posterior with one prior draw + one solve.
 
 Two backends:
-- ``dense`` (this module): exact via ``graphgp.compute_cov_matrix`` + Cholesky,
-  for moderate ``N_D`` (≲ a few ×10³). Used to validate the math and to drive the
-  completion on subsampled / tiled problems.
-- ``vecchia`` (``field_posterior_vecchia``, to follow): the scalable graphGP
-  version — prior draws via ``graphgp.generate`` on a Vecchia graph and
+- ``dense`` (this module): exact via the tabulated-kernel cross-covariance
+  (``_cov_matrix``) + Cholesky, for moderate ``N_D`` (≲ a few ×10³). Used to
+  validate the math and to drive the completion on subsampled / tiled problems.
+- ``vecchia`` (``field_posterior_vecchia``): the scalable GraphGP.jl version —
+  prior draws via the GraphGP.jl ``generate`` on a Vecchia graph and
   ``(K_DD+N)^{-1}`` by matrix-free conjugate gradient — validated to match
   ``dense`` on a small problem, then scaled to the full BOSS catalog.
 
-The kernel is the graphGP ``(cov_bins, cov_vals)`` tuple from
-:func:`echoes.field_kernel.tabulate_kernel`; ``compute_cov_matrix`` evaluates the
+The kernel is the GraphGP ``(cov_bins, cov_vals)`` tuple from
+:func:`echoes.field_kernel.tabulate_kernel`; ``_cov_matrix`` evaluates the
 exact cross-covariance for arbitrary point sets, so the same code conditions the
 field at observed galaxy positions and predicts it along missing sightlines.
 """
@@ -42,11 +42,10 @@ import numpy as np
 
 
 def _as_cov(cov):
-    """Coerce a ``(cov_bins, cov_vals)`` tuple to jax arrays (graphgp requires
-    jax.Array elements); pass any non-tuple covariance object through untouched."""
-    import jax.numpy as jnp
+    """Coerce a ``(cov_bins, cov_vals)`` tuple to float64 numpy arrays; pass any
+    non-tuple covariance object through untouched."""
     if isinstance(cov, (tuple, list)) and len(cov) == 2:
-        return (jnp.asarray(cov[0], dtype=jnp.float64), jnp.asarray(cov[1], dtype=jnp.float64))
+        return (np.asarray(cov[0], np.float64), np.asarray(cov[1], np.float64))
     return cov
 
 
@@ -54,9 +53,9 @@ def _cov_matrix(cov, A, B):
     """Exact kernel cross-covariance K(A, B), returned as a writable numpy array.
 
     For the tabulated isotropic ``(cov_bins, cov_vals)`` kernel this is a pure
-    numpy distance-lookup (``np.interp``, identical to graphgp's ``cov_lookup``)
-    — much faster than dispatching jax per call inside the per-sightline loop.
-    Non-tuple covariances (e.g. ``AnisotropicCovariance``) fall back to graphgp.
+    numpy distance-lookup (``np.interp``, identical to graphgp's ``cov_lookup``).
+    The dense Cholesky path is isotropic-tuple only; anisotropic covariances flow
+    through the scalable Vecchia / Julia path, never this dense matrix.
     """
     A = np.ascontiguousarray(A, np.float64)
     B = np.ascontiguousarray(B, np.float64)
@@ -70,12 +69,9 @@ def _cov_matrix(cov, A, B):
         from scipy.spatial.distance import cdist
         d = cdist(A, B)
         return np.interp(d.ravel(), bins, vals).reshape(d.shape)
-    import jax
-    jax.config.update("jax_enable_x64", True)
-    import jax.numpy as jnp
-    from graphgp import compute_cov_matrix
-    return np.array(compute_cov_matrix(_as_cov(cov), jnp.asarray(A), jnp.asarray(B)),
-                    dtype=np.float64)
+    raise NotImplementedError(
+        "dense _cov_matrix supports only the isotropic (cov_bins, cov_vals) kernel; "
+        "anisotropic covariances run through the GraphGP.jl Vecchia path (JAX retired)")
 
 
 def _k0(cov) -> float:

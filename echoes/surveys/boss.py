@@ -418,3 +418,23 @@ def make_mock_boss(
         sample=sample,
         photsys_data=photsys_d, photsys_random=photsys_r,
     )
+
+
+# ---- registry: BOSS DR12 CMASS-South is the reference restore_missing dataset ----
+from .registry import register, DatasetSpec          # noqa: E402
+from .boss_targets import load_cmass_targets          # noqa: E402
+from ..photoz import boss_photoz_features             # noqa: E402
+
+register(DatasetSpec(
+    name="boss_cmass_south",
+    load_catalog=load_boss,
+    load_catalog_kwargs=dict(sample="CMASS", nside=256, with_photometry=True),
+    build_targets=load_cmass_targets,
+    completion_mode="restore_missing",
+    photoz_features=boss_photoz_features,
+    fid_cosmo=_DEFAULT_COSMO,
+    nside=256,
+    product_prefix="cmass_south",
+    default_engine="field",
+    copula=True,
+))

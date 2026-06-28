@@ -163,3 +163,38 @@ completion_cov = np.cov(np.array(vals).T)     # ADD this to your sample/sim cova
 Pair the catalogs with `data_release/cmass_south_randoms.npz` and use **equal
 weights** — no completeness weights. That is the whole point: the observational
 correction has already been absorbed into the points.
+
+---
+
+## 10. Beyond BOSS: two completion modes, one engine
+
+Everything above is the **restore-missing** mode: the observed catalogue is a fixed
+backbone and ECHOES restores the spectroscopically-missing objects. The same
+`build_package`/`draw` engine supports a second mode, and three datasets ship today
+(see [`adding_a_survey.md`](adding_a_survey.md)):
+
+- **DESI DR1 QSO** (restore-missing, the *uneven-coverage* stress test). DESI's
+  fiber-assignment completeness swings from ~1 (many overlapping tiles) to ~1/6
+  (single-tile gaps). ECHOES restores the integrated completeness deficit, but —
+  unlike BOSS's fiber collisions, which sit at known imaging positions — DESI's gaps
+  are *spatially extended* under-tiled regions, so the restored objects are placed
+  across the footprint by the local deficit `(1/c − 1)` (sampled from the randoms),
+  not cloned onto observed objects. With no imaging colours the redshift is field-only,
+  reverting to the broad n(z) where coverage is thin (the honest prior-dominated fill).
+
+- **Quaia** (resample-redshift, the *large-redshift-error* stress test). Here nothing
+  is *missing* — every quasar is seen, but its redshift is a photo-z with σ_z ~ 0.04–0.08.
+  So there is no fixed backbone: ECHOES keeps every **position** fixed (it is data) and
+  **resamples every redshift** from its photo-z Gaussian × the local line-of-sight
+  density, the latter seeded from the lowest-error "anchor" objects so it sharpens
+  rather than re-injects the photo-z scatter. With σ_z ~ 270 Mpc/h the sharpening is
+  modest *by construction* — the redshift errors exceed most structure — and ECHOES
+  reports that honestly rather than inventing precision. A selection-function inpaint
+  adds the undersampled-footprint objects (flagged `selfunc`, droppable).
+
+Both modes share the relative-samples release format (§7), the field-correlation
+copula (§7), and the per-object PIT calibration (§8): a "sample" is still a seed, and
+the only difference is *which* objects' redshifts vary — the restored ones
+(restore-missing) or all of them (resample-redshift). A completed catalogue has the
+angular selection removed, so DESI/Quaia ship **uniform-footprint randoms** (the survey
+randoms flattened by 1/completeness); BOSS at COMP~0.99 needs no flattening.

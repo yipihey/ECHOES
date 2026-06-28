@@ -40,10 +40,32 @@ prob = if haskey(d, "build_points")
     kbuild = Int(d["k"][])
     pts = T.(d["build_points"])                        # (N, D) real embedded points
     backend = usegpu ? CUDABackend() : CPU()
-    ptsb = usegpu ? CuArray(pts) : pts
-    binsb = usegpu ? CuArray(bins) : bins
-    valsb = usegpu ? CuArray(vals) : vals
-    p = build_graph_ka(ptsb, n0, kbuild, binsb, valsb; backend = backend)
+    # Build-path selection. All three production paths target the SAME graph as Python
+    # `gp.build_graph` (byte-identical neighbours/offsets/permutation), so the field statistics
+    # match across CPU/GPU:
+    #   * GPU + f32 (the production field-gen path): the hand-written shallow CUDA build
+    #     `build_graph_cuda` (byte-for-byte `gp.build_graph(cuda=True)`); needs the accelerator
+    #     .so (`csrc/libgraphgpcapi.so`), Float32-only.
+    #   * CPU (any T): the THREADED host `build_graph` — byte-identical to `gp.build_graph` and
+    #     ~40× faster than the gather-bound `build_graph_ka` on CPU (measured: 0.8s vs 33s at
+    #     N=200k). `build_graph` requires Float64 POINTS (topology only — quantized to the 21-bit
+    #     lattice, so the f32→f64 promotion is lossless: 21 < f32's 24 mantissa bits); `bins`/
+    #     `vals` stay type-T so the stored covariance and the generated field keep the run dtype.
+    #   * GPU + f64 (the parity gate) or build_graph_cuda unavailable: the portable on-device
+    #     `build_graph_ka`. (Its sort-based tree is NOT byte-identical to the BFS tree, so it is
+    #     reserved for the GPU fallback, never the CPU production path.)
+    p = if usegpu && T === Float32
+        try
+            build_graph_cuda(pts, n0, kbuild, bins, vals)
+        catch err
+            @warn "build_graph_cuda unavailable; using build_graph_ka" exception = err
+            build_graph_ka(CuArray(pts), n0, kbuild, CuArray(bins), CuArray(vals); backend = CUDABackend())
+        end
+    elseif usegpu
+        build_graph_ka(CuArray(pts), n0, kbuild, CuArray(bins), CuArray(vals); backend = backend)
+    else
+        build_graph(Float64.(pts), n0, kbuild, bins, vals)     # threaded host build (CPU fast path)
+    end
     hasaniso ? GraphGPProblem(p.coords, p.neighbors, p.offsets, p.n0, p.scale,
                               make_aniso(usegpu ? backend : nothing), p.indices) : p
 else

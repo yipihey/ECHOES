@@ -75,8 +75,6 @@ def _load_patchy_rand(path, zmin, zmax, n_keep, rng):
 
 
 def cz_of_z(z, cosmo):
-    import jax
-    jax.config.update("jax_enable_x64", True)
     return np.asarray(comoving_distance(np.asarray(z, np.float64), cosmo))
 
 

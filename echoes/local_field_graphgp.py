@@ -1,5 +1,5 @@
 """Local-volume GraphGP density field — a ``GriddedFieldContext``-compatible ``1+δ`` cube built by
-GraphGP (Julia or JAX backend), an alternative/complement to the externally-reconstructed Manticore
+GraphGP.jl, an alternative/complement to the externally-reconstructed Manticore
 / CF4 cubes that ``local_completion`` consumes.
 
 Two modes:
@@ -13,8 +13,8 @@ Two modes:
                          and reverts to the prior where it is not.
 
 Both reach the GraphGP.jl backend over the NPZ bridge (``backend="julia"``, the no-OOM path for big
-grids) or stay on JAX (``backend="jax"``). The cube spans ``[-box/2, +box/2]`` per axis about the
-observer, matching ``GriddedFieldContext``.
+grids; ``"juliacall"`` for the warm in-process path). The cube spans ``[-box/2, +box/2]`` per axis
+about the observer, matching ``GriddedFieldContext``.
 """
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ def build_local_gp_field(
     mode : ``"prior"`` (lognormal Cox draw) or ``"posterior_sample"`` (conditioned on the galaxies).
     points_data, nbar_data : local galaxy comoving positions ``(N_D,3)`` and per-point mean density;
         required for ``"posterior_sample"`` (linearized obs ``y=1/n̄−1``, noise ``1/n̄``).
-    backend : ``"julia"`` | ``"jax"``.   sigma2 : field variance for the lognormal mean correction
+    backend : ``"julia"`` | ``"juliacall"``.   sigma2 : field variance for the lognormal mean correction
         (defaults to ``cov_vals[0]=K(0)``).
 
     Returns

@@ -53,10 +53,9 @@ def main():
                     help="candidates = factor x N_data (20 = production; cleaner Poisson sampling)")
     ap.add_argument("--n-samples", type=int, default=3)
     ap.add_argument("--alpha", type=float, default=2.0)
-    ap.add_argument("--backend", choices=["julia", "jax"], default="julia")
+    ap.add_argument("--backend", choices=["julia", "juliacall"], default="julia")
     ap.add_argument("--device", choices=["cpu", "gpu"], default="gpu",
                     help="julia device; 'gpu' is the fast no-OOM path (default)")
-    ap.add_argument("--compare-jax", action="store_true", help="also generate one JAX catalog to cross-check")
     ap.add_argument("--skip-validate", action="store_true", help="skip the K_out re-measurement (timing runs)")
     ap.add_argument("--sampling", choices=["poisson", "bernoulli"], default="poisson",
                     help="bernoulli = <=1 galaxy/candidate, removes the Δθ→0 multi-occupancy spike")
@@ -125,14 +124,6 @@ def main():
     print(f"[boss-lgcp] TIMING  load={t['load']:.1f}s  measure+kernel={t['measure+kernel']:.1f}s  "
           f"generate({args.n_samples} @ n_cand={n_cand:,}, {args.backend}/{args.device})="
           f"{t['generate']:.1f}s  TOTAL={total:.1f}s", flush=True)
-
-    if args.compare_jax and args.backend == "julia":
-        print("[boss-lgcp] cross-check: one JAX catalog (same seed) ...", flush=True)
-        cj = generate_catalogs_from_kernel(cat, cov, sigma2, alpha=args.alpha, n_samples=1, seed=1,
-                                           w_completeness=w_comp, n_cand_factor=args.n_cand_factor,
-                                           backend="jax", verbose=False)[0]
-        print(f"[boss-lgcp] N_gal  julia={cats[0]['N_galaxies']:,}  jax={cj['N_galaxies']:,}  "
-              f"(statistical match expected; graphs differ in tie-breaking)", flush=True)
 
 
 if __name__ == "__main__":

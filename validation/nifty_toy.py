@@ -1,5 +1,10 @@
 """NIFTy (nifty8.re) engine stand-up: correlated field + selection mask + Poisson.
 
+EXTERNAL-OPTIONAL: requires a manual ``pip install nifty8 jax optax``. NIFTy is an
+independent JAX-based field-inference engine (a deliberate cross-check of the GraphGP.jl
+posterior, NOT a backend for it) — it is intentionally NOT an ECHOES dependency, since JAX
+was retired from the GraphGP engine. See git history if this script needs restoring.
+
 Validates the second field engine on a 1D toy: a log-normal intensity
 exp(s(x)) with a LEARNED power spectrum (CorrelatedFieldMaker), observed through
 a selection mask with a hole, Poisson counts; geoVI (optimize_kl) recovers the

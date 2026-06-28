@@ -1,5 +1,9 @@
 """G4 — ISD vs a Rezaie-style NN-weight baseline for SP decontamination.
 
+EXTERNAL-OPTIONAL: requires a manual ``pip install jax optax`` (the NN baseline is a small
+JAX/optax MLP — an external comparison, NOT an ECHOES dependency, since JAX was retired). It
+could be ported to numpy/scikit-learn if a permanent baseline is wanted. See git history.
+
 Rezaie et al. (2020, MNRAS 495, 1613; DECaLS imaging-systematics mitigation) regress
 the observed galaxy density on the imaging SP templates with a feed-forward neural
 net — a JOINT, MULTIVARIATE, nonlinear selection model — and weight each galaxy by

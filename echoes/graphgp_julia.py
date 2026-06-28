@@ -36,20 +36,27 @@ def _scratch_base():
     return None
 
 
+def _default_julia_threads():
+    """Resolve the Julia worker thread count when the caller passes ``julia_threads=None``:
+    ``$ECHOES_JULIA_THREADS`` (set per-worker by :func:`echoes.parallel.numa_map` to the NUMA
+    node's core count) if present, else 8. This lets a NUMA-pinned ensemble worker spin its Julia
+    subprocess at exactly its node's width — and keep it on-node — without threading the count
+    through every call site. A single saturated process should stay ≲ one NUMA domain (~8); the
+    win on this 16×8 box is many on-node processes, not one 128-thread pool."""
+    try:
+        return max(1, int(os.environ.get("ECHOES_JULIA_THREADS", "8")))
+    except ValueError:
+        return 8
+
+
 @contextlib.contextmanager
 def _x64_disabled():
     """Force ``jax_enable_x64`` off for the duration. The k-d tree build (``graphgp.tree``) has an
     ``lax.cond`` whose branches disagree on f32/f64 when x64 is enabled — and graph *topology* is
     precision-insensitive (integer lattice coords) — so we always build under f32. Restored on exit
     so a caller running the f64 numerics (the parity gate) is unaffected."""
-    import jax
-
-    prev = jax.config.read("jax_enable_x64")
-    jax.config.update("jax_enable_x64", False)
-    try:
-        yield
-    finally:
-        jax.config.update("jax_enable_x64", prev)
+    # vestigial no-op: graph build is now JAX-free (GraphGP.jl), so there is no x64 flag to toggle.
+    yield
 
 # locations (overridable via env for other machines)
 JULIA = os.environ.get("ECHOES_JULIA", os.path.expanduser("~/.juliaup/bin/julia"))
@@ -74,6 +81,7 @@ BENCH_PROJ = os.path.join(GRAPHGP_JL, "bench")          # the Julia project (pat
 # The driver SCRIPTS are vendored INSIDE ECHOES (echoes/jl/) so the upstream repo's renames/resets
 # can't delete them out from under a running pipeline; only the GraphGP *package* comes from the repo.
 DRIVER = os.path.join(os.path.dirname(__file__), "jl", "run_graphgp.jl")
+BUILD_DRIVER = os.path.join(os.path.dirname(__file__), "jl", "run_build_graph.jl")
 _LMAX = (1 << 21) - 1                                   # 21-bit/axis lattice (graphgp convention)
 
 
@@ -88,23 +96,17 @@ def _quantize(points):
 
 
 def build_graph_npz(points, n0, k, cov_bins, cov_vals, npz_path, *, cuda=False, aniso=None):
-    """Build the Vecchia graph with Python ``graphgp`` and dump the bridge NPZ (with ``indices``).
+    """Build the Vecchia graph with **GraphGP.jl** (byte-identical to ``gp.build_graph`` — verified
+    coords/neighbours/offsets/indices to 0/N) and dump the bridge NPZ (with ``indices``). JAX-free:
+    the graph is constructed by ``run_build_graph.jl``; ``points`` are pre-quantised to the 21-bit
+    lattice (as f32) so the Julia ``build_graph`` reproduces the Python build exactly.
 
     ``aniso`` (optional) carries an anisotropic kernel ``K(Δspatial, Δz)`` as a dict
     ``{spatial_bins, z_bins, grid (n_s,n_z), alpha}`` (the grid already nugget-inflated). The graph
     topology is identical — built on the same embedded ``(n̂, α·z)`` points — only the covariance the
-    Julia driver assembles differs; ``cov_bins/cov_vals`` are placeholders then."""
-    import jax.numpy as jnp
-    import graphgp as gp
-
-    points_q, origin, scale = _quantize(points)
-    with _x64_disabled():
-        try:
-            graph = gp.build_graph(jnp.asarray(points_q, jnp.float32), n0=n0, k=k, cuda=cuda)
-        except Exception:
-            graph = gp.build_graph(jnp.asarray(points_q, jnp.float32), n0=n0, k=k)
-    coords = np.rint((np.asarray(graph.points, np.float64) - origin) / scale).astype(np.uint32)
-    idx = None if graph.indices is None else np.asarray(graph.indices, np.int64)
+    Julia driver assembles differs; ``cov_bins/cov_vals`` are placeholders then. (``cuda`` is accepted
+    for back-compat and ignored.)"""
+    points_q, _origin, scale = _quantize(points)
     extra = {}
     if aniso is not None:
         extra = dict(
@@ -113,12 +115,30 @@ def build_graph_npz(points, n0, k, cov_bins, cov_vals, npz_path, *, cuda=False, 
             aniso_grid=np.asarray(aniso["grid"], np.float32),          # (n_s, n_z), jitter already in
             aniso_alpha=np.float64(aniso["alpha"]),
         )
-    np.savez(npz_path,
-             coords=coords, neighbors=np.asarray(graph.neighbors, np.int32),
-             offsets=np.asarray(graph.offsets, np.int64), n0=np.int64(n0), scale=np.float64(scale),
+    bin_npz = str(npz_path) + ".buildin.npz"
+    np.savez(bin_npz, build_points=points_q.astype(np.float32), n0=np.int64(n0), k=np.int64(k),
              cov_bins32=np.asarray(cov_bins, np.float32), cov_vals32=np.asarray(cov_vals, np.float32),
-             **({"indices": idx} if idx is not None else {}), **extra)
-    return graph, scale
+             **extra)
+    try:
+        res = subprocess.run([JULIA, "--project=" + BENCH_PROJ, BUILD_DRIVER, bin_npz, str(npz_path)],
+                             capture_output=True, text=True)
+    finally:
+        if os.path.exists(bin_npz):
+            os.remove(bin_npz)
+    if res.returncode != 0 or not os.path.exists(npz_path):
+        raise RuntimeError(f"run_build_graph.jl failed (rc={res.returncode}):\n{res.stderr[-2000:]}")
+    g = _GraphInfo(npz_path)
+    return g, g.scale          # the graph's OWN scale (consistent with the written coords)
+
+
+class _GraphInfo:
+    """Lightweight view of the just-built graph NPZ (preserves the ``.indices``/``.neighbors``/
+    ``.offsets``/``.scale`` attributes the previous ``gp.build_graph`` return exposed)."""
+    def __init__(self, npz_path):
+        d = np.load(npz_path)
+        self.coords = d["coords"]; self.neighbors = d["neighbors"]; self.offsets = d["offsets"]
+        self.scale = float(d["scale"])
+        self.indices = d["indices"] if "indices" in d.files else None
 
 
 def dump_build_npz(points, n0, k, cov_bins, cov_vals, npz_path, *, aniso=None):
@@ -137,12 +157,16 @@ def dump_build_npz(points, n0, k, cov_bins, cov_vals, npz_path, *, aniso=None):
 
 
 def run_graphgp(points, n0, k, cov_bins, cov_vals, *, ops=("generate",), xi=None, values=None,
-                device="cpu", dtype="f32", julia_threads=8, work_dir=None, _graph_npz=None,
+                device="cpu", dtype="f32", julia_threads=None, work_dir=None, _graph_npz=None,
                 aniso=None, build_in_julia=False):
     """Run GraphGP.jl ops on a graph of ``points`` (original order). ``ops`` ⊆
     {generate, generate_inv, logdet, grad}. ``xi`` (N,) or (N,n_samples) and ``values`` (N,) are in
-    ORIGINAL order. Returns a dict with the requested keys (generate → (n_samples,N) original order)."""
+    ORIGINAL order. Returns a dict with the requested keys (generate → (n_samples,N) original order).
+    ``julia_threads=None`` resolves to ``$ECHOES_JULIA_THREADS`` (set by the NUMA ensemble runner)
+    or 8."""
     assert device in ("cpu", "gpu") and dtype in ("f32", "f64")
+    if julia_threads is None:
+        julia_threads = _default_julia_threads()
     _auto = work_dir is None                              # auto-created dirs get cleaned up below
     work = work_dir or tempfile.mkdtemp(prefix="echoes_ggp_", dir=_scratch_base())
     in_npz = os.path.join(work, "in.npz"); out_npz = os.path.join(work, "out.npz")

@@ -90,7 +90,7 @@ stationary GraphGP field (a maximum-entropy, two-point-only Gaussian field) cann
 the survey's *own* counts-in-cells PDF (shot-noise-deconvolved via factorial
 moments), so no external simulation or cosmology enters. Because `T` is monotonic
 it is rank-preserving — the calibrated posterior coverage is untouched. The engine
-builds on GraphGP/fieldpost (never replaces them) and stays in the JAX/CUDA stack.
+builds on GraphGP.jl/fieldpost (never replaces them) and stays in the Julia/CUDA stack.
 
 **What it achieves (validated on real CMASS-South + Patchy mocks).**
 - **+63%** reduction of the `kNN`-CDF gap to the data (shot-noise-clean; a small-
@@ -192,6 +192,47 @@ high `uncert`/`IS_PRIOR_FILL` flag — down-weight `uncert ≥ 0.5` for conserva
 
 ---
 
+## 1c. Quasar datasets — DESI DR1 QSO and Quaia
+
+Two quasar datasets ship in per-dataset subdirectories, built by the same registry-driven
+pipeline (`python pipeline/build_release.py --dataset {desi_qso,quaia}`). Each directory is a
+self-contained bundle: `<name>_posterior.npz`, `<name>_randoms.npz`, `draw_samples.py`,
+`README.md`, `SHA256SUMS`.
+
+| product | mode | size | contents |
+|---|---|---|---|
+| `data_release/desi_qso/desi_qso_posterior.npz` | restore-missing | ~23 MB | 856,831 observed QSOs + 113,370 coverage-restored (field-only redshift); `PROV` 0 observed / 6 coverage |
+| `data_release/quaia/quaia_posterior.npz` | resample-redshift | ~58 MB | 744,834 quasars with **every** redshift resampled (photo-z × field) + 176,061 selection-function inpaint; `PROV` 7 photoz / 8 selfunc |
+
+**DESI DR1 QSO** (the uneven-coverage stress test). DESI's fiber-assignment completeness varies
+violently across the footprint (`WEIGHT_COMP` up to ~6 in single-tile regions, ~1 where many
+tiles overlap). ECHOES restores the integrated completeness deficit
+`Σ floor(WEIGHT_COMP·WEIGHT_ZFAIL − 1)` (recovering the weighted count to <0.1%), placing the
+restored objects across the footprint **by the local deficit** `(1/c − 1)` — not as clones of
+observed objects, since DESI's gaps are spatially extended under-tiled regions. Redshifts are
+field-only (no imaging colours), reverting to the broad n(z) where coverage is thin (the honest
+prior-dominated regime). Validation: count ratio 1.0001; restored fraction tracks NTILE
+(0.27 at NTILE=1 → 0.008 at NTILE≥4); equal-weight completed `wp` ≈ completeness-weighted
+observed `wp` to ~10% median over 2–40 Mpc/h (`validation/validate_new_datasets.py`).
+
+**Quaia** (the large-redshift-error stress test). Every Quaia quasar has a precise position but
+a *photometric* redshift with σ_z ~ 0.04–0.08. ECHOES keeps all positions fixed and **resamples
+each redshift** from N(`redshift_quaia`, `redshift_quaia_err`) × the local line-of-sight density
+prior, the latter seeded from the lowest-error "anchor" objects so it sharpens rather than
+re-injects the photo-z scatter. With σ_z ~ 0.09 (~270 Mpc/h) the achievable sharpening is
+modest by construction (the redshift errors exceed most structure) — the posterior 1σ
+(~0.089) is just below the photo-z input (~0.094), which is the honest physical limit. The
+selection function additionally drives a footprint inpaint (`selfunc`) of ~24% synthetic
+quasars in undersampled regions; these are provenance-flagged so a conservative analysis can
+drop them.
+
+**Randoms.** Both completed catalogs have the angular selection removed, so they ship
+**uniform-footprint** randoms (the survey randoms flattened by 1/completeness; see
+`echoes/surveys/randoms.py`) — pairing a completed catalog with the completeness-imprinted
+survey randoms would imprint a spurious large-scale signal. (BOSS COMP~0.99 needs no flattening.)
+
+---
+
 ## 2. Public input data (large; download from the archives)
 
 These are the published survey products the pipeline consumes. They are **not**
@@ -231,12 +272,34 @@ python data/fetch_patchy.py --n-mocks 10            # mock galaxy catalogs
 python data/fetch_patchy.py --n-mocks 10 --randoms  # + matching x10 randoms (~187 MB)
 ```
 
+### DESI DR1 QSO LSS catalogs — DESI Data Release
+Base: `https://data.desi.lbl.gov/public/dr1/survey/catalogs/dr1/LSS/iron/LSScats/v1.5/`
+```bash
+# data files -> data/desi/ ; randoms (~1.3 GB each) -> nvme scratch, symlinked
+curl -L -o data/desi/QSO_NGC_clustering.dat.fits  "$BASE/QSO_NGC_clustering.dat.fits"
+curl -L -o data/desi/QSO_SGC_clustering.dat.fits  "$BASE/QSO_SGC_clustering.dat.fits"
+# at least 1–2 randoms per cap (QSO_{NGC,SGC}_{0..17}_clustering.ran.fits) for the footprint
+```
+Columns used: `RA, DEC, Z, WEIGHT, WEIGHT_SYS, WEIGHT_COMP, WEIGHT_ZFAIL, WEIGHT_FKP, NTILE,
+FRAC_TLOBS_TILES, PHOTSYS`. The angular `sel_map` is built from the randoms.
+
+### Quaia — Zenodo (Storey-Fisher et al. 2024)
+DOI 10.5281/zenodo.8060755 → `data/quaia/`:
+```bash
+for f in quaia_G20.0.fits random_G20.0_10x.fits selection_function_NSIDE64_G20.0.fits; do
+  curl -L -o data/quaia/$f "https://zenodo.org/api/records/8060755/files/$f/content"
+done
+```
+Columns used: `ra, dec, redshift_quaia, redshift_quaia_err`; Galactic cut `|b| ≥ 10°`.
+
 ---
 
 ## 3. Reproducing the released products
-With the inputs in `data/boss/`:
+With the inputs in `data/boss/` (and `data/desi/`, `data/quaia/` for the quasar datasets):
 ```bash
-python pipeline/build_release.py     # rebuilds cmass_south_posterior.npz + cmass_south_randoms.npz
+python pipeline/build_release.py --dataset boss_cmass_south  # cmass_south_{posterior,randoms}.npz
+python pipeline/build_release.py --dataset desi_qso          # data_release/desi_qso/
+python pipeline/build_release.py --dataset quaia             # data_release/quaia/
 ```
 The seed-0 census is deterministic: 109,636 observed + 5,272 fiber-collided +
 1,505 redshift-failure + 3,472 imaging-systematic analogs = **119,885** galaxies.

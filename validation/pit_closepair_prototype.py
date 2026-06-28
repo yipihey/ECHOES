@@ -59,7 +59,6 @@ def mix_pool(dz_base, bg, f, rng):
 
 
 def cz(z, cosmo):
-    import jax; jax.config.update("jax_enable_x64", True)
     return np.asarray(comoving_distance(np.asarray(z, np.float64), cosmo))
 
 

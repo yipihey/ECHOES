@@ -1,19 +1,21 @@
 """Backend-switchable GraphGP field generation — the one seam through which heavy Vecchia field
-realizations in ECHOES flow, so a single ``backend=`` kwarg routes between:
+realizations in ECHOES flow, so a single ``backend=`` kwarg routes between (the pure-JAX
+``graphgp`` engine has been retired):
 
-  ``"jax"``   (default) the in-process pure-JAX ``graphgp`` — materializes the ``(M,k+1,k+1)``
-              conditional tensor (OOMs at large N·k on GPU; chunking trades memory for time).
-  ``"julia"`` the GraphGP.jl rewrite over the NPZ subprocess bridge (``graphgp_julia``) — never
-              materializes that tensor (runs where JAX OOMs), GPU parity-to-ahead of the CUDA ref,
-              and the only path that also returns analytic gradients.
+  ``"julia"`` (default) the GraphGP.jl rewrite over the NPZ subprocess bridge (``graphgp_julia``) —
+              never materializes the ``(M,k+1,k+1)`` conditional tensor, GPU parity-to-ahead of the
+              CUDA ref, and the only path that also returns analytic gradients. Owns the GPU in its
+              own process.
+  ``"juliacall"`` the SAME GraphGP.jl but called IN-PROCESS via juliacall (``graphgp_juliacall``) —
+              warm Julia, no subprocess cold-start, no NPZ disk round-trip. **CPU-only**, and
+              isotropic-only for now. Best for the many-small-call paths (kernel-MLE objective/grad).
 
-The Julia path owns the GPU in its own process, so it never fights JAX's CUDA on the shared A6000.
-Both paths consume the SAME tabulated ``(cov_bins, cov_vals)`` kernel and the same ``(points, n0, k)``
-Vecchia spec, and return the field in ORIGINAL point order (the bridge carries ``graph.indices``).
+The subprocess Julia path owns the GPU in its own process. All paths consume the SAME tabulated
+``(cov_bins, cov_vals)`` kernel and the same ``(points, n0, k)`` Vecchia spec, and return the field
+in ORIGINAL point order.
 
-Use this for BATCH generation (one call, many samples) — the regime where Julia wins. The iterative
-posterior CG (many tiny generate/​generate_inv calls) stays on JAX until the persistent-worker bridge
-(plan P3) lands, because per-call Julia cold-start would dominate there.
+Use ``"julia"`` for BATCH GPU generation (one call, many samples). Use ``"juliacall"`` for warm,
+CPU, many-small-call loops where the subprocess cold-start would dominate.
 """
 from __future__ import annotations
 
@@ -52,12 +54,12 @@ def generate_field(points, cov, xi, *, n0, k, backend=None, device="cpu",
     Parameters
     ----------
     points : (N, D) array          Vecchia point set (original order).
-    cov    : (cov_bins, cov_vals)  tabulated covariance (numpy or jax arrays).
+    cov    : (cov_bins, cov_vals)  tabulated covariance (numpy arrays).
     xi     : (N,) or (N, S)        white-noise input(s), original order.
     n0, k  : Vecchia dense-block size and neighbor count.
-    backend: "jax" | "julia"       (default ``DEFAULT_BACKEND``).
-    device : "cpu" | "gpu"         Julia backend only (JAX uses ``JAX_PLATFORMS``).
-    graph  : prebuilt jax ``graphgp.Graph`` to reuse (jax backend).
+    backend: "julia" | "juliacall" (default ``DEFAULT_BACKEND``).
+    device : "cpu" | "gpu"         Julia backend only.
+    graph  : unused (retained for API compatibility; JAX engine retired).
     graph_npz : prebuilt bridge NPZ path to reuse (julia backend; amortizes the build).
 
     Returns
@@ -75,18 +77,6 @@ def generate_field(points, cov, xi, *, n0, k, backend=None, device="cpu",
     xi2d, was_1d = _as_2d(xi)
     N, S = xi2d.shape
 
-    if backend == "jax":
-        import jax.numpy as jnp
-        import graphgp as gp
-        if graph is None:
-            graph = gp.build_graph(jnp.asarray(np.asarray(points), jnp.float64),
-                                   n0=min(n0, max(2, N // 2)), k=min(k, N - 1))
-        cj = cov if aniso is not None else (jnp.asarray(cov_bins), jnp.asarray(cov_vals))
-        out = np.empty((S, N), np.float64)
-        for s in range(S):
-            out[s] = np.asarray(gp.generate(graph, cj, jnp.asarray(xi2d[:, s])))
-        return out[0] if was_1d else out
-
     if backend == "julia":
         from . import graphgp_julia as ggj
         res = ggj.run_graphgp(np.asarray(points), n0, k, cov_bins, cov_vals,
@@ -95,7 +85,17 @@ def generate_field(points, cov, xi, *, n0, k, backend=None, device="cpu",
         out = np.asarray(res["generate"], np.float64)         # (S, N) original order
         return out[0] if was_1d else out
 
-    raise ValueError(f"unknown backend {backend!r} (expected 'jax' or 'julia')")
+    if backend == "juliacall":
+        if aniso is not None:
+            raise NotImplementedError(
+                "juliacall backend is isotropic-only; use backend='julia' for anisotropic covariance")
+        from . import graphgp_juliacall as ggc
+        res = ggc.run_graphgp_inproc(np.asarray(points), n0, k, cov_bins, cov_vals,
+                                     ops=("generate",), xi=xi2d, dtype=dtype)
+        out = np.asarray(res["generate"], np.float64)         # (S, N) original order
+        return out[0] if was_1d else out
+
+    raise ValueError(f"unknown backend {backend!r} (expected 'julia' or 'juliacall')")
 
 
 def build_graph_npz(points, n0, k, cov, npz_path, *, cuda_build=False):

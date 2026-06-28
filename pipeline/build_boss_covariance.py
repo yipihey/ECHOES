@@ -61,8 +61,6 @@ OUT = os.path.join(os.path.dirname(__file__), "..", "data_release", "boss_lgcp_j
 # ----------------------------------------------------------------- distances / weights
 def cz_of_z(z, cosmo):
     """Comoving distance [Mpc/h] for redshifts z under the catalog fiducial cosmology."""
-    import jax
-    jax.config.update("jax_enable_x64", True)
     return np.asarray(comoving_distance(np.asarray(z, np.float64), cosmo))
 
 

@@ -158,7 +158,11 @@ def test_gate2_backend_field_equivalence():
                              neighbors=jnp.asarray(d["neighbors"].astype(np.int32)),
                              offsets=tuple(int(x) for x in d["offsets"]),
                              indices=jnp.asarray(d["indices"].astype(np.int64)))
-        f_jax = gb.generate_field(points, cov, xi, n0=n0, k=k, backend="jax", graph=ref_graph)
+        # JAX reference oracle directly (the pure-JAX backend="jax" engine was retired); validates the
+        # Julia field against gp.generate on the SAME graph.
+        cov_jax = (jnp.asarray(cov[0], jnp.float64), jnp.asarray(cov[1], jnp.float64))
+        f_jax = np.stack([np.asarray(gp.generate(ref_graph, cov_jax, jnp.asarray(xi[:, s])), np.float64)
+                          for s in range(xi.shape[1])])
         f_jul = gb.generate_field(points, cov, xi, n0=n0, k=k, backend="julia", device="cpu",
                                   graph_npz=in_npz, dtype="f64")
         assert f_jax.shape == f_jul.shape == (2, n)

@@ -32,16 +32,11 @@ pipeline = ["scipy>=1.10", "astropy>=5.3", "healpy>=1.16", "matplotlib>=3.7", "n
 clustering = ["scipy>=1.10", "astropy>=5.3", "Corrfunc>=2.5", "numba>=0.58"]
 # Derived rest-frame absolute magnitudes + stellar masses (echoes.derived; SED fit).
 derived = ["kcorrect>=5.1"]
-# graphGP conditional-field engine (optional, correlated posterior).
-graphgp = [
-  "scipy>=1.10", "astropy>=5.3", "healpy>=1.16",
-  "graphgp @ git+https://github.com/yipihey/graphgp@hierarchical-chunked-generation",
-  "jax>=0.4", "h5py>=3.8",
-]
-# NIFTy field-level inference engine (nifty8.re / jax): learned power spectrum,
-# Poisson-lognormal likelihood, geoVI — the parallel cross-check of the graphGP
-# conditional field posterior.
-nifty = ["nifty8>=8.5", "jax>=0.4", "optax>=0.2"]
+# GraphGP conditional-field / LGCP-covariance engine (optional, correlated posterior).
+# The GP numerics + graph build now run on GraphGP.jl (a Julia package, installed separately —
+# see docs/adding_a_survey.md / echoes.graphgp_julia); only these Python deps are needed here.
+# (JAX and the Python `graphgp` fork were retired — the engine is JAX-free.)
+graphgp = ["scipy>=1.10", "astropy>=5.3", "healpy>=1.16", "h5py>=3.8"]
 # One-time uniform-randoms generation from the survey mangle mask.
 mask = ["pymangle>=0.9.4"]
 # Fetching imaging targets / Gaia bright stars.

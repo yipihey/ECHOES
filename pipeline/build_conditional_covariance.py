@@ -38,8 +38,6 @@ OUT = os.path.join(os.path.dirname(__file__), "..", "data_release", "boss_lgcp_j
 
 
 def cz_of_z(z, cosmo):
-    import jax
-    jax.config.update("jax_enable_x64", True)
     return np.asarray(comoving_distance(np.asarray(z, np.float64), cosmo))
 
 

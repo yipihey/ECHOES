@@ -1,5 +1,10 @@
 """graphGP vs NIFTy cross-check of the reconstructed galaxy density field.
 
+EXTERNAL-OPTIONAL: requires a manual ``pip install nifty8 jax optax``. NIFTy is an
+independent JAX-based field-inference engine (a deliberate cross-check of the GraphGP.jl
+posterior, NOT a backend for it) — intentionally NOT an ECHOES dependency, since JAX was
+retired from the GraphGP engine. See git history if this script needs restoring.
+
 Two independent field engines should agree on the posterior overdensity field
 where the data constrain it. In a comoving sub-box of CMASS-South (fully inside
 the footprint, so no masking) we:

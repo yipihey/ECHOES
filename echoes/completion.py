@@ -21,11 +21,37 @@ cosmology, no comoving distances.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import numpy as np
 
 from . import perf
+
+
+@dataclass
+class _AnisoCov:
+    """Pure-numpy anisotropic covariance K(Δspatial, Δz), duck-typed to the GraphGP.jl
+    bridge's ``_aniso_dict`` (attributes ``spatial_bins``, ``z_bins``, ``grid``, ``alpha``).
+
+    Replaces ``graphgp.build_anisotropic_covariance`` so the measurement-first BOSS
+    covariance pipeline carries no JAX/graphgp dependency: the grid is consumed
+    (bilinearly interpolated) entirely inside GraphGP.jl, this object only ships the
+    table. ``grid[0,0]`` (zero separation) is inflated by ``1 + jitter`` at construction
+    for positive-definiteness, mirroring the isotropic kernels' nugget.
+    """
+    spatial_bins: np.ndarray
+    z_bins: np.ndarray
+    grid: np.ndarray
+    alpha: float
+
+    @classmethod
+    def build(cls, spatial_bins, z_bins, grid, alpha, *, jitter=0.0):
+        grid = np.array(grid, np.float64)
+        grid[0, 0] = grid[0, 0] * (1.0 + jitter)
+        return cls(spatial_bins=np.asarray(spatial_bins, np.float64),
+                   z_bins=np.asarray(z_bins, np.float64),
+                   grid=grid, alpha=float(alpha))
 from .geometry import _radec_to_nhat
 from .randoms import make_random_from_selection_function
 
@@ -258,7 +284,13 @@ def _clpair_density(dz_pool, n_bins: int = 121, dz_max: float = 0.06):
 
 
 # provenance codes for completed-catalog galaxies (per object)
-PROV = {"observed": 0, "collided": 1, "zfail": 2, "systot": 3, "zhost": 4, "inpaint": 5}
+#   0-5  BOSS-era completion (fiber-collision / redshift-failure / systot / inpaint);
+#   6    DESI uneven-coverage restoration (restore_missing, no colours);
+#   7    Quaia photo-z resampled redshift (resample_redshift — observed object, fixed
+#        position, z redrawn from its photo-z×field posterior);
+#   8    selection-function inpaint analog (Quaia footprint completion).
+PROV = {"observed": 0, "collided": 1, "zfail": 2, "systot": 3, "zhost": 4, "inpaint": 5,
+        "coverage": 6, "photoz": 7, "selfunc": 8}
 PROV_NAME = {v: k for k, v in PROV.items()}
 
 # Coarse category each provenance code rolls up to, for visualizers / data products.
@@ -277,6 +309,9 @@ PROV_GROUP = {
     PROV["zfail"]:    "completed:redshift-failure",
     PROV["systot"]:   "inpainted:imaging-systematic",
     PROV["inpaint"]:  "inpainted:mask-hole",
+    PROV["coverage"]: "completed:coverage",
+    PROV["photoz"]:   "resampled:photo-z",
+    PROV["selfunc"]:  "inpainted:selection-function",
 }
 # display colours (dark-background visualizer / WebGPU viewer). Canonical palette
 # shared by the interactive viewer (pipeline/build_viewer_bundle.py) and the static
@@ -288,6 +323,9 @@ PROV_COLOR = {
     PROV["systot"]:   "#ffb84d",   # orange — imaging-systematic inpaint
     PROV["zhost"]:    "#ff6f61",   # red    — fiber-collision (host-z fallback)
     PROV["inpaint"]:  "#41d6b0",   # teal   — generative mask-hole / empty-region inpaint
+    PROV["coverage"]: "#7ee787",   # green    — DESI uneven-coverage restoration
+    PROV["photoz"]:   "#e0af68",   # amber    — Quaia photo-z resampled redshift
+    PROV["selfunc"]:  "#bb9af7",   # lavender — selection-function inpaint analog
 }
 # short + long human labels per code (the viewer manifest and any legend use these).
 PROV_LABEL = {
@@ -297,6 +335,9 @@ PROV_LABEL = {
     PROV["systot"]:   ("systot", "imaging-systematic analog"),
     PROV["zhost"]:    ("zhost", "host-redshift fallback"),
     PROV["inpaint"]:  ("inpaint", "mask-hole inpaint"),
+    PROV["coverage"]: ("coverage", "uneven-coverage completion"),
+    PROV["photoz"]:   ("photoz", "photo-z resampled redshift"),
+    PROV["selfunc"]:  ("selfunc", "selection-function inpaint"),
 }
 PROV_DESCRIPTION = {
     PROV["observed"]: "Original BOSS CMASS-South galaxy with a measured spectroscopic redshift.",
@@ -307,6 +348,14 @@ PROV_DESCRIPTION = {
     PROV["inpaint"]:  "Generated galaxy filling a veto-mask hole / empty region where there is no "
                       "imaging (no real counterpart). Carries a per-galaxy `uncert` prior-dominance "
                       "flag; large-region fills are prior-dominated (IS_PRIOR_FILL) — see fill_regime().",
+    PROV["coverage"]: "ECHOES quasar restored as a local clone of a nearby observed object to undo "
+                      "uneven angular tile coverage (DESI), with a redshift drawn from the local "
+                      "line-of-sight density (no imaging colours).",
+    PROV["photoz"]:   "Observed quasar at its fixed sky position whose uncertain redshift was resampled "
+                      "from its photo-z posterior, sharpened by the local density field "
+                      "(Quaia resample mode — the position is data, only the redshift is redrawn).",
+    PROV["selfunc"]:  "ECHOES analog quasar added where the selection function reports the footprint as "
+                      "undersampled (synthetic inpaint, not a real missing object).",
 }
 
 
@@ -318,6 +367,9 @@ PROV_GROUP_COLOR = {
     "completed:redshift-failure": PROV_COLOR[PROV["zfail"]],
     "inpainted:imaging-systematic": PROV_COLOR[PROV["systot"]],
     "inpainted:mask-hole": PROV_COLOR[PROV["inpaint"]],
+    "completed:coverage": PROV_COLOR[PROV["coverage"]],
+    "resampled:photo-z": PROV_COLOR[PROV["photoz"]],
+    "inpainted:selection-function": PROV_COLOR[PROV["selfunc"]],
 }
 
 
@@ -357,7 +409,8 @@ def fill_regime(prov, uncert=None, *, prior_thresh=0.5):
     prov = np.asarray(prov)
     regime = np.full(len(prov), "completed", dtype="<U13")
     regime[prov == PROV["observed"]] = "observed"
-    is_ip = prov == PROV["inpaint"]
+    regime[prov == PROV["photoz"]] = "resampled"          # Quaia: observed object, redshift redrawn
+    is_ip = (prov == PROV["inpaint"]) | (prov == PROV["selfunc"])
     if uncert is None:
         regime[is_ip] = "inpaint_prior"
         return regime, is_ip
@@ -411,10 +464,13 @@ def _graphgp_zmiss(targets, photoz, dz_pool, gp_field, draw_index, z_o, z_host, 
     density (correlated across missing galaxies via the shared draw). Returns
     ``(z_miss, zhost_fallback)``."""
     import healpy as hp
-    from .photoz import photoz_features
     ra_m = np.asarray(targets.ra, np.float64); dec_m = np.asarray(targets.dec, np.float64)
     host = np.asarray(targets.host_index); coll = (miss_kind == "collided") & (host >= 0)
-    feat = photoz_features(targets.colors, targets.mags); zk, wk = photoz.posterior(feat)
+    _cols = np.asarray(targets.colors) if getattr(targets, "colors", None) is not None else None
+    use_photoz = photoz is not None and _cols is not None and _cols.ndim == 2 and _cols.shape[1] > 0
+    if use_photoz:
+        from .photoz import photoz_features
+        feat = photoz_features(targets.colors, targets.mags); zk, wk = photoz.posterior(feat)
     pcl = _clpair_density(dz_pool)
     nside = gp_field.nside; zc = 0.5 * (gp_field.z_edges[1:] + gp_field.z_edges[:-1])
     zgrid = np.linspace(z_o.min(), z_o.max(), 256)
@@ -426,9 +482,12 @@ def _graphgp_zmiss(targets, photoz, dz_pool, gp_field, draw_index, z_o, z_host, 
     z_miss = np.empty(M); fb = np.zeros(M, bool)
     for i in range(M):
         pf = np.interp(zgrid, zc, dl[:, pix[i]], left=0.0, right=0.0) * nbar_z   # GP local density × n̄(z)
-        w = wk[i]; ok = np.isfinite(w) & (w > 0)
-        pp = ((w[ok][None, :] * np.exp(-0.5 * ((zgrid[:, None] - zk[i][ok][None, :]) / bw_p) ** 2)).sum(1)
-              if ok.any() else np.ones_like(zgrid))
+        if use_photoz:
+            w = wk[i]; ok = np.isfinite(w) & (w > 0)
+            pp = ((w[ok][None, :] * np.exp(-0.5 * ((zgrid[:, None] - zk[i][ok][None, :]) / bw_p) ** 2)).sum(1)
+                  if ok.any() else np.ones_like(zgrid))
+        else:                                            # field-only (no colours; DESI)
+            pp = np.ones_like(zgrid)
         p = pf * pp
         if coll[i]:
             p = p * pcl(zgrid - z_host[i])
@@ -462,6 +521,7 @@ def complete_catalog_photoz(
     inpaint_mode: str = "thin",
     fill_footprint=None,
     inpaint_kwargs=None,
+    features_fn=None,
     verbose: bool = False,
 ):
     """Equal-weight completion using REAL imaging positions + photo-z redshifts.
@@ -523,8 +583,14 @@ def complete_catalog_photoz(
       ``fieldpost`` (the Stage-1 parity skeleton).
     - ``'nn'``: nearest-neighbour host z (+ close-pair Δz for collisions). Sharp.
     - ``'photoz'``: per-object p(z|colours) only (LOS-smeared).
+
+    ``features_fn(colors, mags)`` maps target photometry to the photo-z feature
+    space; ``None`` uses the BOSS default (``photoz.photoz_features``). When
+    ``photoz`` is ``None`` or the targets carry no colours, the ``field`` mode
+    drops the colour factor (field-only posterior).
     """
-    from .photoz import photoz_features
+    if features_fn is None:
+        from .photoz import photoz_features as features_fn
 
     rng = np.random.default_rng(seed)
     ra_o = np.asarray(catalog.ra_data, np.float64)
@@ -555,8 +621,8 @@ def complete_catalog_photoz(
         z_miss[zf] = z_host[zf]
         nohost = host < 0
         if nohost.any():                                   # rare: no host -> photo-z / global
-            feat = photoz_features(np.asarray(targets.colors)[nohost],
-                                   None if targets.mags is None else np.asarray(targets.mags)[nohost])
+            feat = features_fn(np.asarray(targets.colors)[nohost],
+                               None if targets.mags is None else np.asarray(targets.mags)[nohost])
             zk, wk = photoz.posterior(feat)
             for a, i in enumerate(np.where(nohost)[0]):
                 w = wk[a]; ok = np.isfinite(w) & (w > 0)
@@ -576,8 +642,11 @@ def complete_catalog_photoz(
         # consistent local structure (sharp where structure is) instead of a delta at
         # one neighbour (NN) or a broad LOS-smearing photo-z — recovering 3-D clustering.
         from scipy.spatial import cKDTree
-        feat = photoz_features(targets.colors, targets.mags)
-        zk, wk = photoz.posterior(feat)
+        _cols = np.asarray(targets.colors) if getattr(targets, "colors", None) is not None else None
+        use_photoz = photoz is not None and _cols is not None and _cols.ndim == 2 and _cols.shape[1] > 0
+        if use_photoz:
+            feat = features_fn(targets.colors, targets.mags)
+            zk, wk = photoz.posterior(feat)
         K = min(150, len(z_o))
         _, nn = cKDTree(_radec_to_nhat(ra_o, dec_o)).query(
             _radec_to_nhat(np.asarray(targets.ra), np.asarray(targets.dec)), k=K, workers=-1)
@@ -588,9 +657,12 @@ def complete_catalog_photoz(
         for i in range(M):
             znb = z_o[nn[i]]
             pf = np.exp(-0.5 * ((zgrid[:, None] - znb[None, :]) / bw_f) ** 2).sum(1)   # local field
-            w = wk[i]; ok = np.isfinite(w) & (w > 0)
-            pp = ((w[ok][None, :] * np.exp(-0.5 * ((zgrid[:, None] - zk[i][ok][None, :]) / bw_p) ** 2)).sum(1)
-                  if ok.any() else np.ones_like(zgrid))
+            if use_photoz:
+                w = wk[i]; ok = np.isfinite(w) & (w > 0)
+                pp = ((w[ok][None, :] * np.exp(-0.5 * ((zgrid[:, None] - zk[i][ok][None, :]) / bw_p) ** 2)).sum(1)
+                      if ok.any() else np.ones_like(zgrid))
+            else:                                            # field-only (no colours; DESI)
+                pp = np.ones_like(zgrid)
             p = pf * pp
             if coll_i[i]:                                   # collisions: sharpen toward the host
                 p = p * pcl(zgrid - z_host[i])
@@ -645,7 +717,7 @@ def complete_catalog_photoz(
     else:
         # 'photoz': per-object redshift from p(z|colours) × close-pair prior (more
         # realistic per-object z, but LOS-smeared — degrades 3-D redshift-space clustering).
-        feat = photoz_features(targets.colors, targets.mags)
+        feat = features_fn(targets.colors, targets.mags)
         zk, wk = photoz.posterior(feat)
         if clustering_prior == "data":
             pcl = _clpair_density(dz_pool)
@@ -809,11 +881,6 @@ def generate_catalogs_from_kernel(
     candidates, so a field with the *true* (deconvolved) covariance produces
     catalogs whose LS re-measurement carries the window back.
     """
-    import jax
-    import jax.numpy as jnp
-    import graphgp as gp
-
-    jax.config.update("jax_enable_x64", True)
     nd = catalog.N_data
     if w_completeness is None:
         w_completeness = np.ones(nd)
@@ -827,37 +894,27 @@ def generate_catalogs_from_kernel(
     ra_c = np.asarray(ra_c, np.float64); dec_c = np.asarray(dec_c, np.float64)
     z_c = np.asarray(z_c, np.float64)
     nhat_c = _radec_to_nhat(ra_c, dec_c)
-    points = jnp.asarray(np.hstack([nhat_c, (alpha * z_c)[:, None]]), dtype=jnp.float64)
+    points = np.asarray(np.hstack([nhat_c, (alpha * z_c)[:, None]]), np.float64)
     if verbose:
         print(f"[K2d-gen] {n_cand:,} candidates; building graph (α={alpha}) ...")
     sig = np.sqrt(max(sigma2, 1e-12))
     n0e, ke = min(n0, n_cand // 2), min(k, n_cand - 1)
 
     # Field draws: backend="julia" generates all n_samples in ONE GraphGP.jl subprocess (no
-    # (M,k+1,k+1) materialization → runs where JAX OOMs at this n_cand·k); JAX builds the graph
-    # once and draws per-sample in-process. Both consume the SAME cov and candidate order.
-    if backend == "julia":
-        from .graphgp_backend import generate_field
-        eps_all = np.stack([np.random.default_rng(seed + 1 + s).standard_normal(n_cand)
-                            for s in range(n_samples)], axis=1)              # (n_cand, S)
-        F = np.atleast_2d(generate_field(np.asarray(points), cov, eps_all, n0=n0e, k=ke,
-                                         backend="julia", device=device,
-                                         build_in_julia=True))                # (S, n_cand): build+gen in Julia
-        graph = None
-    else:
-        graph = gp.build_graph(points, n0=n0e, k=ke)
+    # (M,k+1,k+1) materialization → runs where JAX OOMs at this n_cand·k). Only backend="julia"
+    # is supported (JAX retired). Build + generate happen in the one Julia process.
+    if backend != "julia":
+        raise ValueError("only backend='julia' is supported (JAX retired)")
+    from .graphgp_backend import generate_field
+    eps_all = np.stack([np.random.default_rng(seed + 1 + s).standard_normal(n_cand)
+                        for s in range(n_samples)], axis=1)              # (n_cand, S)
+    F = np.atleast_2d(generate_field(np.asarray(points), cov, eps_all, n0=n0e, k=ke,
+                                     backend="julia", device=device,
+                                     build_in_julia=True))                # (S, n_cand): build+gen in Julia
 
     out = []
     for s in range(n_samples):
-        if backend == "julia":
-            f = F[s]
-        else:
-            eps = np.random.default_rng(seed + 1 + s).standard_normal(n_cand)
-            try:
-                f = np.asarray(gp.generate(graph, cov, jnp.asarray(eps, dtype=jnp.float64),
-                                           chunk_size=chunk_size))
-            except TypeError:                                                # installed graphgp has no chunk_size
-                f = np.asarray(gp.generate(graph, cov, jnp.asarray(eps, dtype=jnp.float64)))
+        f = F[s]
         f = np.where(np.isfinite(f), f, 0.0)
         f = np.clip(f, -8.0 * sig, 8.0 * sig)
         if transform is not None:
@@ -991,7 +1048,6 @@ def _anisocov_from_kernel_grid(theta_edges, z_edges, KG, *, alpha=2.0, jitter=0.
     ``ρ=ξ_T⁻¹(ξ)`` for a measured transform (``kernel_from_K2d_tierA``). Returns ``(cov, diag0)``
     with ``diag0 = grid[0,0]·(1+jitter)`` (=σ² for lognormal; ≈1 for a correlation/Tier-A)."""
     from scipy.optimize import nnls
-    import graphgp as gp
 
     theta_c = np.empty(len(theta_edges) - 1)
     theta_c[0] = 0.5 * theta_edges[1]
@@ -1019,7 +1075,7 @@ def _anisocov_from_kernel_grid(theta_edges, z_edges, KG, *, alpha=2.0, jitter=0.
     for (lt, lz), a in zip(scales, coeffs):
         if a > 0:
             grid += a * np.outer(_matern1(sb, lt), _matern1(zb, lz))
-    cov = gp.build_anisotropic_covariance(sb, zb, grid, float(alpha), jitter=jitter)
+    cov = _AnisoCov.build(sb, zb, grid, float(alpha), jitter=jitter)
     return cov, float(grid[0, 0] * (1.0 + jitter))
 
 
